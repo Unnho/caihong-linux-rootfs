@@ -16,6 +16,7 @@ jobs:
         run: |
           set -euo pipefail
           find scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+          bash -n packaging/power-profiles-daemon-caihong/build-rootfs-package.sh
           sh -n \
             packaging/linux-caihong/install-current-slot \
             packaging/linux-caihong/linux-caihong.install \
@@ -23,7 +24,11 @@ jobs:
           python3 -m compileall -q scripts
           python3 tools/test-rootfs-camera-policy.py
           python3 tools/test-rootfs-runtime.py
+          python3 tools/test-display-manager-migration.py
           python3 tools/test-hardware-mac.py
+          python3 tools/test-caihong-autocharge.py
+          python3 tools/test-caihong-flashlight-panel.py
+          python3 tools/test-install-caihong-modules.py
           node --test tools/test-release-artifacts.mjs
           shellcheck -x \
             scripts/build-boot-v2.sh \
@@ -44,12 +49,14 @@ jobs:
             scripts/verify-armada-rootfs.sh \
             packaging/linux-caihong/install-current-slot \
             packaging/caihong-platform/install-caihong-platform \
+            packaging/power-profiles-daemon-caihong/build-rootfs-package.sh \
             rootfs/archlinuxarm/usr/local/sbin/caihong-bluetooth-autostart \
             rootfs/archlinuxarm/usr/local/sbin/caihong-hardware-mac \
             rootfs/archlinuxarm/usr/local/sbin/caihong-mark-boot-successful \
             rootfs/archlinuxarm/usr/local/sbin/caihong-slot \
             scripts/ssc/install-rootfs.sh
           desktop-file-validate \
+            rootfs/archlinuxarm/etc/xdg/autostart/caihong-flashlight-panel.desktop \
             rootfs/archlinuxarm/usr/share/applications/caihong-switch-to-android.desktop
       - name: Reject oversized repository objects
         run: |

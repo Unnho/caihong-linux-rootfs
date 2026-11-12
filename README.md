@@ -242,11 +242,13 @@ Commands that change hardware or boot state require root privileges.
 | --- | --- |
 | `caihong-slot` | Inspect or switch A/B slots: `sudo caihong-slot status`, `sudo caihong-slot android --reboot`. |
 | `caihong-flashlight` | Control the rear torch: `sudo caihong-flashlight on 40`, `status`, or `off`. |
+| `caihong-flashlight-panel` | Adds the Flashlight applet to the Plasma panel on first login. `--status` reports whether it is present and `--force` adds it again after it was removed. |
 | `caihong-hotspot` | Run the concurrent Wi-Fi AP without disconnecting the STA: `sudo caihong-hotspot start`; also provides `status`, `stop`, and `regulatory {show\|set CODE\|reset}`. Configure it in `/etc/caihong-hotspot.conf`. |
 | `caihong-hardware-mac` | Applies WLAN and Bluetooth addresses at boot, preferring explicit configuration or authenticated factory NVRAM and using persistent fallback addresses if NVRAM cannot be read. |
 | `caihong-npu-info` | `sudo caihong-npu-info` reports CDSP firmware state and FastRPC capabilities. `--self-test` verifies generic v75 DSP execution; `--htp-self-test` verifies a float QAIRT/QNN graph; `--htp-conv-self-test` verifies quantized Conv2d against a CPU reference. |
 | `caihong-bluetooth-autostart` | Powers on the configured Bluetooth controller during boot. |
 | `caihong-charge` | Reads battery status and firmware health values with `status` / `health`; `sudo caihong-charge limit 75 80` sets charging thresholds, and `sudo caihong-charge bypass on` / `off` controls charging inhibition without disconnecting the adapter. This does not guarantee battery isolation. |
+| `caihong-autocharge` | Optional daemon that keeps the battery inside a charge window by toggling bypass. Enable it with `sudo systemctl enable --now caihong-autocharge` and configure `stop`, `resume` and `interval` in `/etc/caihong-autocharge.json`; `--status` prints the current decision. It is not enabled by default and does not change the saved `caihong-charge` thresholds. |
 | `caihong-pen-pair` | Pairs a pen address obtained from a validated CPS8601 magnetic-attach event. Normally run by its systemd timer. |
 | `caihong-pen-charge` | Performs a bounded CPS8601 charging/attach observation. Normally run by its systemd timer. |
 | `caihong-pen-autoconnect` | Restores the paired pen connection and touchscreen pen scan mode. Normally run by its systemd timer. |
@@ -257,6 +259,12 @@ Commands that change hardware or boot state require root privileges.
 | `caihong-switch-to-android.desktop` | Plasma application-menu entry that runs `caihong-slot android --reboot` through polkit. |
 | `caihong-toolbox` | Opens the Caihong graphical settings tool from the application menu. Hardware changes go through its D-Bus/Polkit backend; the backend is not enabled as a boot service. |
 
+The Plasma panel gets a **Flashlight** applet on first login: a switch and an
+intensity slider for the rear torch. The applet is installed system-wide, so it
+is also available under **Add Widgets**. Each user gets it once; if you remove
+it, later logins leave it removed. Add it again with
+`caihong-flashlight-panel --force` or from Add Widgets.
+
 The rootfs also includes the Caihong SSC service, custom libcamera stack,
 Plasma Camera integration, Caihong Toolbox, firmware, audio topology and
 matching kernel modules.
@@ -265,6 +273,16 @@ Charging defaults to automatic operation with no extra charge limit. Settings
 persist only when explicitly saved with `--save` and restored by enabling
 `caihong-charge.service`; the service is not enabled by default. Firmware health
 and capacity values are not independent measurements of battery wear.
+
+`caihong-autocharge` is an opt-in alternative to the kernel thresholds: it
+inhibits charging once the controller's raw state of charge reaches `stop` and
+allows it again at `resume`. It reads `/etc/caihong-autocharge.json` (defaults:
+`stop` 80, `resume` 79, `interval` 30 seconds) and calls
+`caihong-charge bypass` only when the state changes. The daemon is not enabled
+by default, so installs keep stock charging behaviour until
+`sudo systemctl enable --now caihong-autocharge` is run. Disable it with
+`sudo systemctl disable --now caihong-autocharge`; stopping charge still does
+not guarantee battery isolation.
 
 ## Kernel updates
 
