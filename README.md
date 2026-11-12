@@ -39,9 +39,12 @@ development release for this device; review the status table before installing.
   both direct-root boot images and the matching kernel modules.
 - `linux-caihong-<version>-1.aarch64.rpm`: RPM package for Fedora-based Armada
   containing the same kernel payload.
-- `caihong-platform-archlinuxarm-<version>.tar.zst`: incremental update payload
-  for Caihong services, firmware, tools, Caihong Toolbox, the Qualcomm Iris
-  VA-API driver and device integration.
+- `caihong-platform-archlinuxarm-<version>.tar.zst`: the complete device payload
+  for Caihong services, firmware, tools, Caihong Toolbox, libcamera, Plasma
+  Camera, qbootctl, power-profiles-daemon with the Qualcomm CPU driver, the
+  Qualcomm Iris VA-API driver and device integration. It
+  is both the incremental update and the only device-content source installed
+  into a freshly built rootfs image.
 - `caihong-npu-<version>-lib[64].tar.zst`: incremental update payload for the
   Qualcomm NPU runtime and Hexagon DSP components.
 
@@ -61,8 +64,8 @@ The image is assembled directly from the upstream
 [`ghcr.io/armada-os/armada:stable`](https://github.com/armada-os/armada)
 OCI image and keeps the Armada name, `armada` desktop account, Steam Client,
 FEX, Proton, Gamescope, KDE Plasma and the other Armada components together.
-The builder overlays the matching Caihong kernel modules, firmware, audio,
-sensors, input mappings and board utilities. Each image records the resolved
+The builder installs matching Caihong kernel, platform and NPU packages for
+firmware, audio, sensors, input mappings and board utilities. Each image records the resolved
 Armada OCI digest in `/etc/caihong-rootfs-build-info`.
 
 This is a conventional direct-root ext4 image for the existing Android
@@ -269,6 +272,13 @@ The rootfs also includes the Caihong SSC service, custom libcamera stack,
 Plasma Camera integration, Caihong Toolbox, firmware, audio topology and
 matching kernel modules.
 
+ADB uses the device serial from `oplusboot.serialno` (falling back to
+`androidboot.serialno`) as its USB serial number. To override it, write one
+non-empty value without spaces to `/etc/caihong-adbd-serial`; the value is used
+verbatim. If neither source is available, it derives a stable
+`caihong-<machine-id prefix>` serial, and only uses `caihong-adb` when no valid
+machine ID exists.
+
 Charging defaults to automatic operation with no extra charge limit. Settings
 persist only when explicitly saved with `--save` and restored by enabling
 `caihong-charge.service`; the service is not enabled by default. Firmware health
@@ -316,13 +326,17 @@ sudo /usr/libexec/caihong-platform/install-caihong-platform \
   ./caihong-npu-<version>-lib.tar.zst
 ```
 
-安装器校验清单，并将被覆盖文件备份到
-`/var/lib/caihong-packages/<component>/previous`。`/etc/systemd` 的候选配置保存到
-`/var/lib/caihong-config-pending/<component>/etc/systemd`，不会自动启用服务，也不会在
-systemd 扫描的依赖目录中生成无效的 `.caihong-new` 链接；其他 `/etc` 配置仍以
-`<file>.caihong-new` 保存，需手动审阅。旧版本遗留的候选文件不会自动删除，应在备份后
-单独整理。Armada 使用 `caihong-platform-armada-<version>.tar.zst`；需要恢复前一版文件时，
-执行 `install-caihong-platform --rollback <component>`。
+The installer verifies the manifest and backs up replaced files under
+`/var/lib/caihong-packages/<component>/previous`. Systemd configuration
+candidates are staged under
+`/var/lib/caihong-config-pending/<component>/etc/systemd` for manual review;
+other `/etc` files use the `.caihong-new` suffix. Legacy candidates are left
+for manual cleanup. Run `install-caihong-platform --rollback <component>`
+to restore the previous files.
+
+On Arch Linux ARM, installing a platform update also installs and enables
+Plasma Login Manager and removes SDDM. An administrator-selected alternative
+display manager is preserved. Fresh images enable PLM during image creation.
 
 The kernel RPM is included in the same update bundle. Armada is Fedora-based:
 install `caihong-platform-armada-<version>.tar.zst` with the transactional
@@ -338,6 +352,8 @@ The scripts select the native or cross toolchain automatically:
 ```sh
 scripts/checkout-dependencies.sh
 scripts/build-kernel-release.sh
+sudo -E scripts/build-caihong-platform-package.sh release
+scripts/build-caihong-npu-package.sh release
 sudo -E env CHROOT_TOOL=chroot MODULE_TREE="$PWD/modules-current" \
   OUTPUT_FORMAT=ext4 SPARSE_IMAGE=1 \
   scripts/package-archlinuxarm-rootfs.sh \
