@@ -12,6 +12,10 @@ if [[ -z $target || ! -d $target ]]; then
 fi
 target=$(cd -- "$target" && pwd)
 failed=0
+if ! chroot "$target" rpm -q caihong-platform >/dev/null; then
+	echo "native caihong-platform RPM is not registered in Armada" >&2
+	failed=1
+fi
 
 missing()
 {
@@ -102,6 +106,7 @@ required_paths=(
 	usr/local/libexec/caihong-ssc/iio-sensor-proxy
 	usr/local/lib/caihong-ssc/libhexagonrpc.so.0.5
 	usr/local/lib/caihong-ssc/libssc.so.2
+	var/lib/caihong-ssc/root/sensors/sns_reg.conf
 	usr/lib/systemd/system/iio-sensor-proxy.service.d/caihong-ssc.conf
 	usr/lib/tmpfiles.d/caihong-alsa.conf
 	usr/lib/udev/rules.d/99-caihong-flashlight.rules
@@ -174,7 +179,7 @@ for path in "${obsolete_camera_paths[@]}"; do
 done
 
 for package in libcamera libcamera-ipa libcamera-tools; do
-	if rpm --root "$target" -q "$package" >/dev/null 2>&1; then
+	if chroot "$target" rpm -q "$package" >/dev/null 2>&1; then
 		echo "obsolete distribution camera package remains: $package" >&2
 		failed=1
 	fi
