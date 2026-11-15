@@ -139,6 +139,8 @@ usr/local/libexec/caihong-ssc/hexagonrpcd
 usr/local/libexec/caihong-ssc/iio-sensor-proxy
 usr/local/lib/caihong-ssc/libhexagonrpc.so.0.5
 usr/local/lib/caihong-ssc/libssc.so.2
+usr/share/caihong/ssc-build-info
+usr/share/licenses/caihong-ssc/LICENSE.libssc
 usr/lib/systemd/system/caihong-ssc.service
 usr/lib/systemd/system/iio-sensor-proxy.service.d/caihong-ssc.conf
 usr/lib/tmpfiles.d/caihong-alsa.conf
@@ -157,9 +159,16 @@ usr/lib/firmware/awinic/caihong-aw88261-speaker-cal.bin
 usr/lib/firmware/novatek/DT-novatek-nt36532.bin
 usr/lib/firmware/qcom/sm8650/CAMERA_ICP.mbn
 usr/lib/firmware/qcom/sm8650/SM8650-MTP-tplg.bin
+usr/lib/firmware/qcom/sm8650/bps-striping-bggr10-nv12-1632x1224.bin
+usr/lib/firmware/qcom/sm8650/bps-striping-bggr10-nv12-2104x1560.bin
 usr/lib/firmware/qcom/sm8650/bps-striping-bggr10-nv12-3264x2448.bin
 usr/lib/firmware/qcom/sm8650/bps-striping-bggr10-nv12-4208x3120.bin
 usr/lib/firmware/qcom/sm8650/bps-striping-bggr10-nv12-640x480.bin
+usr/share/wireplumber/wireplumber.conf.d/90-caihong-camera.conf
+usr/lib/spa-0.2/libcamera/libspa-libcamera.so
+usr/bin/pw-play
+usr/bin/pw-record
+usr/bin/v4l2-ctl
 usr/lib/power-profiles-daemon
 usr/lib/systemd/system/power-profiles-daemon.service
 usr/share/dbus-1/system-services/net.hadess.PowerProfiles.service
@@ -382,9 +391,14 @@ fi
 # but never reaches WMI ready with the ath12k_wifi7 baseline used here.  Verify
 # every installed runtime payload so a stale root filesystem cannot silently
 # combine that firmware with the release kernel.
-if ! (cd -- "$target/usr/lib/firmware" &&
-	sha256sum -c "$project_dir/firmware/SHA256SUMS" >/dev/null); then
+if ! awk '$2 != "./regulatory.db" && $2 != "./regulatory.db.p7s"' \
+	"$project_dir/firmware/SHA256SUMS" |
+	(cd -- "$target/usr/lib/firmware" && sha256sum -c - >/dev/null); then
 	echo "installed runtime firmware does not match the Caihong release set" >&2
+	failed=1
+fi
+if ! chroot "$target" pacman -Qkk wireless-regdb >/dev/null; then
+	echo "distribution wireless regulatory database failed package verification" >&2
 	failed=1
 fi
 wifi_amss="$target/usr/lib/firmware/ath12k/WCN7850/hw2.0/caihong/amss.bin"

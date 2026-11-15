@@ -55,8 +55,13 @@ root=PARTLABEL=linux rootfstype=ext4 rootwait rw
   Qualcomm NPU／QNN／HTP 运行时和 Hexagon DSP 组件。它既是增量更新包，也是新构建 rootfs
   镜像中设备内容的唯一来源。
 - `caihong-platform-<version>-1.aarch64.rpm`：Armada 原生平台 RPM，包含同样的
-  基础硬件组件和 NPU，按 Fedora 的 `lib64` 布局构建；目前不含 Caihong Toolbox。
+  基础硬件组件、Caihong Toolbox 和 NPU，按 Fedora 的 `lib64` 布局构建。
   不再单独交付 NPU 压缩包。
+
+两种平台包都声明音频、传感器、Qt 图形界面及 PipeWire 相机插件的运行依赖，
+由 pacman／DNF 安装；设备固件、前后摄全分辨率与合并像素模式的 BPS 表、
+工具箱和板级配置则由 `caihong-platform` 自身交付。构建时会核对两种原生包的
+文件清单和运行依赖，rootfs 镜像不再另行补入设备文件。
 
 Release 说明会记录每个资产、重组后 zstd 压缩流和解压后可刷写镜像的 SHA-256，
 以及文件系统逻辑大小和实际使用的源码版本。可安装资产不会使用 ZIP 打包。
@@ -356,6 +361,13 @@ sudo dnf upgrade --refresh && sudo dnf install --allowerasing \
 命令中额外添加 `--overwrite 'usr/*'`，接管此前未登记的设备文件；后续升级不要
 再加此选项。安装前备份重要数据，并确认包管理器提示的发行版相机、PPD 和 SDDM
 替换操作。Armada 的 `--allowerasing` 也用于解决这些平台组件的替换。
+
+两种原生包都会在安装钩子中自动进行一次旧 tar 安装迁移：按包内清单校正设备目录的
+属主和权限，将 `/etc/systemd` 中遗留的无效 `.caihong-new` 候选移到
+`/var/lib/caihong-platform/legacy-systemd-candidates.*` 保存，不覆盖生效配置、
+不改变用户禁用的服务。迁移完成后记录状态，后续升级和开机不重复执行。
+Arch 首次安装仍需上述 `--overwrite 'usr/*'`，因为 pacman 在运行包内钩子前
+就会检查旧文件冲突。
 
 二进制、固件和配置模板现在由 pacman／RPM 管理，可通过 `pacman -Q caihong-platform`
 或 `rpm -q caihong-platform` 查询。已有 `/etc` 配置及服务启用状态不覆盖；新的

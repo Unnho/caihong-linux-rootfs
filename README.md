@@ -47,9 +47,15 @@ development release for this device; review the status table before installing.
   is both the incremental update and the only device-content source installed
   into a freshly built rootfs image.
 - `caihong-platform-<version>-1.aarch64.rpm`: the native Armada platform RPM with
-  the same core hardware components and NPU runtime, built for Fedora's `lib64`
-  layout. It currently does not include Caihong Toolbox. No standalone NPU archive
-  is published.
+  the same core hardware components, Caihong Toolbox and NPU runtime, built for
+  Fedora's `lib64` layout. No standalone NPU archive is published.
+
+Both platform packages declare the audio, sensor, Qt GUI and PipeWire camera
+runtime dependencies for pacman/DNF to install. Device firmware, BPS tables for
+both full-resolution and binned camera modes, Toolbox and board configuration
+are delivered by `caihong-platform` itself. Builds check both native packages'
+file manifests and runtime dependencies; rootfs images do not add device files
+through a separate path.
 
 The Release description records the SHA-256 digests of every asset, the
 reconstructed zstd stream and the decompressed flashable image, together with
@@ -349,6 +355,15 @@ unregistered payload files. Do not use it for later native-package upgrades.
 Back up important data and review package-manager prompts for replacing the
 distribution camera stack, PPD and SDDM. Armada's `--allowerasing` allows the
 corresponding platform-component replacements.
+
+Both native packages automatically perform a one-time legacy tar migration in
+their installation hooks: restore packaged directory ownership and permissions,
+and archive obsolete `.caihong-new` files from `/etc/systemd` under
+`/var/lib/caihong-platform/legacy-systemd-candidates.*`. Active configuration and
+disabled services are preserved. A completion marker prevents this migration
+from repeating on later upgrades or at boot. Arch still needs the initial
+`--overwrite 'usr/*'` because pacman checks file conflicts before running package
+hooks.
 
 Binaries, firmware and configuration templates are now tracked by pacman/RPM.
 Check the installed version with `pacman -Q caihong-platform` or
