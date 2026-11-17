@@ -193,14 +193,32 @@ def verify(release, distribution, libdir, suffix):
     print(f'verified native {distribution} platform package: {package.name} ({len(required)} required paths)')
 
 
+DISTRIBUTIONS = {
+    'archlinuxarm': ('lib', '-aarch64.pkg.tar.zst'),
+    'armada': ('lib64', '-1.aarch64.rpm'),
+    'debian': ('lib', '_arm64.deb'),
+    'rocknix': ('lib', '-1-rocknix.tar.zst'),
+}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('release', type=Path)
+    parser.add_argument(
+        'distributions', nargs='*',
+        help='distributions to verify, comma-separated or as separate arguments '
+             '(default: all)')
     arguments = parser.parse_args()
-    verify(arguments.release, 'archlinuxarm', 'lib', '-aarch64.pkg.tar.zst')
-    verify(arguments.release, 'armada', 'lib64', '-1.aarch64.rpm')
-    verify(arguments.release, 'debian', 'lib', '_arm64.deb')
-    verify(arguments.release, 'rocknix', 'lib', '-1-rocknix.tar.zst')
+    names = []
+    for item in arguments.distributions:
+        names.extend(part for part in item.split(',') if part)
+    if not names:
+        names = list(DISTRIBUTIONS)
+    for name in names:
+        if name not in DISTRIBUTIONS:
+            parser.error(f'unknown distribution: {name}')
+        libdir, suffix = DISTRIBUTIONS[name]
+        verify(arguments.release, name, libdir, suffix)
 
 
 if __name__ == '__main__':

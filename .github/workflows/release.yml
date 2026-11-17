@@ -15,6 +15,10 @@ on:
         required: true
         type: boolean
         default: false
+      distributions:
+        description: Comma-separated distributions to build
+        required: true
+        default: archlinuxarm,armada,debian,rocknix
 
 permissions:
   contents: write
@@ -25,7 +29,51 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      distributions: ${{ steps.select.outputs.distributions }}
+      archlinuxarm: ${{ steps.select.outputs.archlinuxarm }}
+      armada: ${{ steps.select.outputs.armada }}
+      debian: ${{ steps.select.outputs.debian }}
+      rocknix: ${{ steps.select.outputs.rocknix }}
+    steps:
+      - name: Select distributions
+        id: select
+        env:
+          REQUESTED: ${{ inputs.distributions || 'archlinuxarm,armada,debian,rocknix' }}
+        run: |
+          set -euo pipefail
+          all=(archlinuxarm armada debian rocknix)
+          declare -A wanted=()
+          IFS=, read -ra items <<< "$REQUESTED"
+          for item in "${items[@]}"; do
+            item=${item//[[:space:]]/}
+            [[ -n $item ]] || continue
+            known=0
+            for name in "${all[@]}"; do
+              [[ $item == "$name" ]] && known=1
+            done
+            (( known )) || { echo "unknown distribution: $item" >&2; exit 1; }
+            wanted[$item]=1
+          done
+          selected=()
+          for name in "${all[@]}"; do
+            if [[ -n ${wanted[$name]:-} ]]; then
+              selected+=("$name")
+              echo "$name=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "$name=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+          (( ${#selected[@]} )) || { echo "no distributions selected" >&2; exit 1; }
+          printf 'distributions=%s\n' "$(IFS=,; echo "${selected[*]}")" >> "$GITHUB_OUTPUT"
+          matrix=$(printf '"%s",' "${selected[@]}")
+          printf 'matrix=[%s]\n' "${matrix%,}" >> "$GITHUB_OUTPUT"
+
   build-kernel:
+    needs: prepare
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
     env:
@@ -75,26 +123,52 @@ jobs:
           ccache --set-config=compression_level=6
           ccache --zero-stats
 
-      - name: Build direct-root kernel and update payload
-        id: build-kernel
+      - name: Build direct-root kernel and boot images
         run: |
           jobs=$(nproc)
           JOBS=$jobs ZSTD_THREADS=$jobs FORCE=1 \
             KERNEL_CC="ccache gcc" KERNEL_HOSTCC="ccache gcc" \
           scripts/build-kernel-release.sh
-          scripts/build-linux-caihong-rpm.sh modules-current release
-          scripts/build-linux-caihong-deb.sh modules-current release
+
+      - name: Build Armada kernel RPM
+        if: needs.prepare.outputs.armada == 'true'
+        run: scripts/build-linux-caihong-rpm.sh modules-current release
+
+      - name: Build Debian kernel DEB
+        if: needs.prepare.outputs.debian == 'true'
+        run: scripts/build-linux-caihong-deb.sh modules-current release
+
+      - name: Build Arch Linux ARM platform package
+        if: needs.prepare.outputs.archlinuxarm == 'true'
+        run: |
           sudo -E env PATH="$PATH" \
             DISTRIBUTION=archlinuxarm scripts/build-caihong-platform-package.sh release
+
+      - name: Build Armada platform package
+        if: needs.prepare.outputs.armada == 'true'
+        run: |
           sudo -E env PATH="$PATH" \
             DISTRIBUTION=armada LIBDIR=lib64 \
             scripts/build-caihong-platform-package.sh release
+
+      - name: Build Debian platform package
+        if: needs.prepare.outputs.debian == 'true'
+        run: |
           sudo -E env PATH="$PATH" \
             DISTRIBUTION=debian scripts/build-caihong-platform-package.sh release
+
+      - name: Build ROCKNIX platform package
+        if: needs.prepare.outputs.rocknix == 'true'
+        run: |
           sudo -E env PATH="$PATH" \
             DISTRIBUTION=rocknix scripts/build-caihong-platform-package.sh release
+
+      - name: Verify device packages
+        id: build-kernel
+        run: |
           sudo chown -R "$USER:$USER" release
-          scripts/verify-caihong-update-packages.sh release
+          scripts/verify-caihong-update-packages.sh release \
+            "${{ needs.prepare.outputs.distributions }}"
           kernel_release=$(cat release/KERNEL_RELEASE)
           printf 'kernel_release=%s\n' "$kernel_release" >> "$GITHUB_OUTPUT"
 
@@ -128,12 +202,12 @@ jobs:
   build-rootfs:
     name: Build ${{ matrix.distribution }} rootfs
     runs-on: ubuntu-24.04-arm
-    needs: build-kernel
+    needs: [prepare, build-kernel]
     timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
-        distribution: [archlinuxarm, armada, debian, rocknix]
+        distribution: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -267,7 +341,7 @@ jobs:
 
   publish:
     runs-on: ubuntu-24.04-arm
-    needs: [build-kernel, build-rootfs]
+    needs: [prepare, build-kernel, build-rootfs]
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -292,6 +366,7 @@ jobs:
           chmod -R u+rwX release
 
       - name: Restore and prepare Arch rootfs
+        if: needs.prepare.outputs.archlinuxarm == 'true'
         uses: actions/cache/restore@v4
         with:
           key: caihong-rootfs-archlinuxarm-${{ github.run_id }}-${{ github.run_attempt }}
@@ -299,6 +374,7 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Prepare Arch release assets
+        if: needs.prepare.outputs.archlinuxarm == 'true'
         run: |
           kernel_release=$(cat release/KERNEL_RELEASE)
           scripts/prepare-release-assets.py \
@@ -314,6 +390,7 @@ jobs:
             "release/caihong-rootfs-$kernel_release.ext4.sparse.img.zst"
 
       - name: Restore Armada rootfs
+        if: needs.prepare.outputs.armada == 'true'
         uses: actions/cache/restore@v4
         with:
           key: caihong-rootfs-armada-${{ github.run_id }}-${{ github.run_attempt }}
@@ -321,6 +398,7 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Prepare Armada release assets
+        if: needs.prepare.outputs.armada == 'true'
         run: |
           kernel_release=$(cat release/KERNEL_RELEASE)
           scripts/prepare-release-assets.py \
@@ -336,6 +414,7 @@ jobs:
             "release/caihong-armada-rootfs-$kernel_release.ext4.sparse.img.zst"
 
       - name: Restore Debian rootfs
+        if: needs.prepare.outputs.debian == 'true'
         uses: actions/cache/restore@v4
         with:
           key: caihong-rootfs-debian-${{ github.run_id }}-${{ github.run_attempt }}
@@ -343,6 +422,7 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Prepare Debian release assets
+        if: needs.prepare.outputs.debian == 'true'
         run: |
           kernel_release=$(cat release/KERNEL_RELEASE)
           scripts/prepare-release-assets.py \
@@ -358,6 +438,7 @@ jobs:
             "release/caihong-debian-rootfs-$kernel_release.ext4.sparse.img.zst"
 
       - name: Restore ROCKNIX rootfs
+        if: needs.prepare.outputs.rocknix == 'true'
         uses: actions/cache/restore@v4
         with:
           key: caihong-rootfs-rocknix-${{ github.run_id }}-${{ github.run_attempt }}
@@ -365,6 +446,7 @@ jobs:
           fail-on-cache-miss: true
 
       - name: Prepare ROCKNIX release assets
+        if: needs.prepare.outputs.rocknix == 'true'
         run: |
           kernel_release=$(cat release/KERNEL_RELEASE)
           scripts/prepare-release-assets.py \
@@ -380,9 +462,15 @@ jobs:
             "release/caihong-rocknix-rootfs-$kernel_release.ext4.sparse.img.zst"
 
       - name: Assemble publishable release assets
+        env:
+          SELECTED: ${{ needs.prepare.outputs.distributions }}
         run: |
           set -euo pipefail
-          for directory in armada debian rocknix; do
+          mkdir -p release/assets
+          IFS=, read -ra selected <<< "$SELECTED"
+
+          for directory in "${selected[@]}"; do
+            [[ -d "release/${directory}-assets" ]] || continue
             for source in "release/${directory}-assets"/*; do
               target=release/assets/${source##*/}
               if [[ -e $target ]]; then
@@ -401,6 +489,26 @@ jobs:
             rmdir "release/${directory}-assets"
           done
 
+          require_min()
+          {
+            local description=$1 minimum=$2
+            shift 2
+            if (( $# < minimum )); then
+              echo "${description}: expected at least ${minimum}, found $#" >&2
+              exit 1
+            fi
+          }
+
+          require_exact()
+          {
+            local description=$1 expected=$2
+            shift 2
+            if (( $# != expected )); then
+              echo "${description}: expected ${expected}, found $#" >&2
+              exit 1
+            fi
+          }
+
           shopt -s nullglob
           boot=(release/assets/caihong-boot-*.img)
           arch_rootfs=(release/assets/caihong-rootfs-*.ext4.sparse.img.zst*)
@@ -414,18 +522,30 @@ jobs:
           platform_rpm=(release/assets/caihong-platform-*-1.aarch64.rpm)
           platform_deb=(release/assets/caihong-platform_*_arm64.deb)
           platform_rocknix=(release/assets/caihong-platform-*-1-rocknix.tar.zst)
-          (( ${#boot[@]} == 2 ))
-          (( ${#arch_rootfs[@]} >= 1 ))
-          (( ${#armada_rootfs[@]} >= 1 ))
-          (( ${#debian_rootfs[@]} >= 1 ))
-          (( ${#rocknix_rootfs[@]} >= 1 ))
-          (( ${#pacman[@]} == 1 ))
-          (( ${#rpm[@]} == 1 ))
-          (( ${#deb[@]} == 1 ))
-          (( ${#platform_pacman[@]} == 1 ))
-          (( ${#platform_rpm[@]} == 1 ))
-          (( ${#platform_deb[@]} == 1 ))
-          (( ${#platform_rocknix[@]} == 1 ))
+          require_exact 'boot images' 2 "${boot[@]}"
+          for name in "${selected[@]}"; do
+            case $name in
+              archlinuxarm)
+                require_min 'Arch rootfs image' 1 "${arch_rootfs[@]}"
+                require_exact 'Arch kernel package' 1 "${pacman[@]}"
+                require_exact 'Arch platform package' 1 "${platform_pacman[@]}"
+                ;;
+              armada)
+                require_min 'Armada rootfs image' 1 "${armada_rootfs[@]}"
+                require_exact 'Armada kernel package' 1 "${rpm[@]}"
+                require_exact 'Armada platform package' 1 "${platform_rpm[@]}"
+                ;;
+              debian)
+                require_min 'Debian rootfs image' 1 "${debian_rootfs[@]}"
+                require_exact 'Debian kernel package' 1 "${deb[@]}"
+                require_exact 'Debian platform package' 1 "${platform_deb[@]}"
+                ;;
+              rocknix)
+                require_min 'ROCKNIX rootfs image' 1 "${rocknix_rootfs[@]}"
+                require_exact 'ROCKNIX platform package' 1 "${platform_rocknix[@]}"
+                ;;
+            esac
+          done
           for asset in release/assets/*; do
             case ${asset##*/} in
               caihong-boot-*.img|\
@@ -448,14 +568,16 @@ jobs:
           done
 
           {
-            printf '%s\n\n' '## Arch Linux ARM'
-            cat release/ARCH_NOTES.md
-            printf '\n%s\n\n' '## Armada'
-            cat release/ARMADA_NOTES.md
-            printf '\n%s\n\n' '## Debian'
-            cat release/DEBIAN_NOTES.md
-            printf '\n%s\n\n' '## ROCKNIX'
-            cat release/ROCKNIX_NOTES.md
+            for name in "${selected[@]}"; do
+              case $name in
+                archlinuxarm) title='Arch Linux ARM'; notes=ARCH_NOTES.md ;;
+                armada) title='Armada'; notes=ARMADA_NOTES.md ;;
+                debian) title='Debian'; notes=DEBIAN_NOTES.md ;;
+                rocknix) title='ROCKNIX'; notes=ROCKNIX_NOTES.md ;;
+              esac
+              printf '%s\n\n' "## $title"
+              cat "release/$notes"
+            done
           } > release/RELEASE_NOTES.md
 
       - name: Install artifact uploader
