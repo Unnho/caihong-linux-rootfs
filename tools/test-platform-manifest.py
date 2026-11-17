@@ -35,7 +35,7 @@ class PlatformManifestTests(unittest.TestCase):
             relative = f'qcom/sm8650/bps-striping-bggr10-nv12-{size}.bin'
             self.assertEqual(hashlib.sha256((firmware / relative).read_bytes()).hexdigest(),
                              checksums[relative])
-            for distribution in ('archlinuxarm', 'armada'):
+            for distribution in ('archlinuxarm', 'armada', 'debian', 'rocknix'):
                 self.assertIn('usr/lib/firmware/' + relative,
                               VERIFIER.source_paths(PROJECT, distribution))
 
@@ -50,6 +50,8 @@ class PlatformManifestTests(unittest.TestCase):
                 'rootfs/archlinuxarm/usr/local/sbin/caihong-test',
                 'rootfs/archlinuxarm/usr/share/alsa/ucm2/conf.d/sm8650/SM8650-MTP.conf',
                 'rootfs/armada/etc/caihong-armada.conf',
+                'rootfs/debian/etc/caihong-debian.conf',
+                'rootfs/rocknix/etc/caihong-rocknix.conf',
                 'firmware/qcom/test.bin', 'firmware/SOURCE.md',
                 'firmware/SHA256SUMS', 'firmware/regulatory.db',
                 'firmware-assets/caihong-ssc/root/sensors/test',
@@ -60,7 +62,7 @@ class PlatformManifestTests(unittest.TestCase):
             link = project / 'rootfs/archlinuxarm/etc/systemd/system/test.service'
             link.parent.mkdir(parents=True)
             link.symlink_to('/usr/lib/systemd/system/test.service')
-            for distribution in ('archlinuxarm', 'armada'):
+            for distribution in ('archlinuxarm', 'armada', 'debian', 'rocknix'):
                 with self.subTest(distribution=distribution):
                     paths = VERIFIER.source_paths(project, distribution)
                     prefix = 'usr/share/caihong-platform/defaults/'
@@ -73,21 +75,39 @@ class PlatformManifestTests(unittest.TestCase):
                     self.assertNotIn('usr/lib/firmware/regulatory.db', paths)
                     self.assertNotIn('usr/lib/firmware/SOURCE.md', paths)
                     self.assertNotIn('usr/lib/firmware/SHA256SUMS', paths)
-                    self.assertEqual(prefix + 'etc/caihong-armada.conf' in paths,
-                                     distribution == 'armada')
+                    for other in ('armada', 'debian', 'rocknix'):
+                        self.assertEqual(
+                            prefix + f'etc/caihong-{other}.conf' in paths,
+                            distribution == other)
                     self.assertEqual(prefix + 'etc/sudoers.d/10-alarm' in paths,
                                      distribution == 'archlinuxarm')
+                    self.assertEqual(prefix + 'etc/sudoers.d/10-caihong' in paths,
+                                     distribution == 'debian')
 
-    def test_missing_runtime_dependency_is_rejected_for_both_distributions(self):
+    def test_missing_runtime_dependency_is_rejected_for_all_distributions(self):
         for distribution, dependencies in VERIFIER.RUNTIME_PACKAGES.items():
             with self.subTest(distribution=distribution):
-                prefix = 'depend = ' if distribution == 'archlinuxarm' else ''
-                metadata = '\n'.join(prefix + dependency for dependency in dependencies)
+                if distribution == 'archlinuxarm':
+                    metadata = '\n'.join('depend = ' + dependency
+                                         for dependency in dependencies)
+                elif distribution == 'debian':
+                    metadata = 'Depends: ' + ', '.join(dependencies)
+                else:
+                    metadata = '\n'.join(dependencies)
                 VERIFIER.verify_dependencies(metadata, distribution)
                 for dependency in dependencies:
+                    if distribution == 'archlinuxarm':
+                        incomplete = '\n'.join(
+                            'depend = ' + name for name in dependencies
+                            if name != dependency)
+                    elif distribution == 'debian':
+                        incomplete = 'Depends: ' + ', '.join(
+                            name for name in dependencies if name != dependency)
+                    else:
+                        incomplete = '\n'.join(
+                            name for name in dependencies if name != dependency)
                     with self.assertRaisesRegex(ValueError, dependency):
-                        VERIFIER.verify_dependencies('\n'.join(
-                            prefix + name for name in dependencies if name != dependency), distribution)
+                        VERIFIER.verify_dependencies(incomplete, distribution)
 
 
 if __name__ == '__main__':

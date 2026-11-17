@@ -27,8 +27,8 @@ jobs:
           sudo apt-get install -y \
             alsa-utils bc bison build-essential ccache curl dwarves file flex git \
             kmod libarchive-tools libegl-dev libdrm-dev libelf-dev libgbm-dev \
-            libgles-dev libssl-dev libva-dev meson ninja-build pkg-config \
-            python3 rpm rsync shellcheck skopeo umoci zstd
+            libgles-dev libssl-dev libva-dev meson mmdebstrap ninja-build \
+            pkg-config python3 rpm rsync shellcheck skopeo squashfs-tools umoci zstd
 
       - name: Resolve kernel and platform dependencies
         run: scripts/checkout-dependencies.sh
@@ -56,11 +56,16 @@ jobs:
             KERNEL_CC="ccache gcc" KERNEL_HOSTCC="ccache gcc" \
             scripts/build-kernel-release.sh
           scripts/build-linux-caihong-rpm.sh modules-current release
+          scripts/build-linux-caihong-deb.sh modules-current release
           sudo -E env PATH="$PATH" \
             DISTRIBUTION=archlinuxarm scripts/build-caihong-platform-package.sh release
           sudo -E env PATH="$PATH" \
             DISTRIBUTION=armada LIBDIR=lib64 \
             scripts/build-caihong-platform-package.sh release
+          sudo -E env PATH="$PATH" \
+            DISTRIBUTION=debian scripts/build-caihong-platform-package.sh release
+          sudo -E env PATH="$PATH" \
+            DISTRIBUTION=rocknix scripts/build-caihong-platform-package.sh release
           sudo chown -R "$USER:$USER" release
           scripts/verify-caihong-update-packages.sh release
           (
@@ -68,8 +73,11 @@ jobs:
             sha256sum \
               linux-caihong-*-aarch64.pkg.tar.zst \
               linux-caihong-*-1.aarch64.rpm \
+              linux-caihong_*_arm64.deb \
               caihong-platform-*-aarch64.pkg.tar.zst \
               caihong-platform-*-1.aarch64.rpm \
+              caihong-platform_*_arm64.deb \
+              caihong-platform-*-1-rocknix.tar.zst \
               > SHA256SUMS.device-update
           )
 
@@ -91,8 +99,11 @@ jobs:
           path: |
             release/linux-caihong-*-aarch64.pkg.tar.zst
             release/linux-caihong-*-1.aarch64.rpm
+            release/linux-caihong_*_arm64.deb
             release/caihong-platform-*-aarch64.pkg.tar.zst
             release/caihong-platform-*-1.aarch64.rpm
+            release/caihong-platform_*_arm64.deb
+            release/caihong-platform-*-1-rocknix.tar.zst
             release/SHA256SUMS.device-update
           if-no-files-found: error
           compression-level: 0

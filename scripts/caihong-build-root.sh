@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 Osilvfe <osilvfe@gmail.com>
+# Copyright (c) 2026 Ahaan <ahaan.c@icloud.com>
 #
 # Prepare and expose a disposable AArch64 build root for device payloads.
 # The same root is used for the Arch Linux ARM and Armada platform packages so
@@ -101,8 +102,9 @@ if [[ $command == cleanup ]]; then
 	exit 0
 fi
 
-[[ $distribution == archlinuxarm || $distribution == armada ]] || \
-	fail "distribution must be archlinuxarm or armada"
+[[ $distribution == archlinuxarm || $distribution == armada ||
+	$distribution == debian || $distribution == rocknix ]] || \
+	fail "distribution must be archlinuxarm, armada, debian or rocknix"
 if [[ -f $root/$ready_marker ]] && [[ $(<"$root/$ready_marker") == "$distribution" ]]; then
 	mount_api
 	exit 0
@@ -286,6 +288,88 @@ case $distribution in
 		chroot "$root" /usr/bin/env -i HOME=/root LANG=C PATH=/usr/bin:/usr/sbin \
 			"$dnf_tool" -y install --setopt=install_weak_deps=False \
 			"${packages[@]}"
+		;;
+	debian|rocknix)
+		command -v mmdebstrap >/dev/null 2>&1 || fail "missing host tool: mmdebstrap"
+		# ROCKNIX is Buildroot-based but glibc/arm64; its device payload is
+		# compiled in the Debian build root so the binaries link against the
+		# same ABI the Debian image uses.
+		# shellcheck source=../config/debian.env
+		# shellcheck disable=SC1091
+		. "$project_dir/config/debian.env"
+		components=$(printf '%s' "$DEBIAN_COMPONENTS" | tr ' ' ',')
+		mountpoint -q "$root" && umount --lazy "$root"
+		mmdebstrap --variant=apt --components="$components" \
+			"$DEBIAN_SUITE" "$root" "$DEBIAN_MIRROR"
+		mount_api
+		packages=(
+			build-essential
+			git
+			cmake
+			extra-cmake-modules
+			meson
+			ninja-build
+			pkg-config
+			rsync
+			python3-jinja2
+			python3-ply
+			python3-yaml
+			libglib2.0-dev
+			libgnutls28-dev
+			libyaml-dev
+			libevent-dev
+			libunwind-dev
+			libssl-dev
+			libelf-dev
+			libdrm-dev
+			libva-dev
+			libjpeg-dev
+			libtiff-dev
+			libasound2-dev
+			libsystemd-dev
+			libudev-dev
+			libwayland-dev
+			wayland-protocols
+			libxkbcommon-dev
+			libegl-dev
+			libgles-dev
+			libgbm-dev
+			libgstreamer1.0-dev
+			libgstreamer-plugins-base1.0-dev
+			libpipewire-0.3-dev
+			libspa-0.2-dev
+			libbsd-dev
+			qt6-base-dev
+			qt6-declarative-dev
+			qt6-multimedia-dev
+			qt6-sensors-dev
+			qt6-svg-dev
+			libgudev-1.0-dev
+			libqmi-glib-dev
+			libqrtr-glib-dev
+			libprotobuf-c-dev
+			protobuf-c-compiler
+			protobuf-compiler
+			python3-dev
+			libpolkit-gobject-1-dev
+			libupower-glib-dev
+			libkf6config-dev
+			libkf6coreaddons-dev
+			libkf6i18n-dev
+			libkirigami-dev
+			kirigami-addons-dev
+			libexiv2-dev
+			linux-libc-dev
+			patch
+		)
+		chroot "$root" /usr/bin/env -i \
+			HOME=/root LANG=C PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+			DEBIAN_FRONTEND=noninteractive \
+			apt-get update
+		chroot "$root" /usr/bin/env -i \
+			HOME=/root LANG=C PATH=/usr/sbin:/usr/bin:/sbin:/bin \
+			DEBIAN_FRONTEND=noninteractive \
+			apt-get install -y --no-install-recommends "${packages[@]}"
 		;;
 esac
 

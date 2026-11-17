@@ -9,6 +9,8 @@ PLATFORM = (PROJECT / 'scripts/build-caihong-platform-package.sh').read_text()
 ROOTFS = (PROJECT / 'scripts/package-archlinuxarm-rootfs.sh').read_text()
 BASE = (PROJECT / 'scripts/build-archlinuxarm-rootfs.sh').read_text()
 ARMADA = (PROJECT / 'scripts/package-armada-rootfs.sh').read_text()
+DEBIAN = (PROJECT / 'scripts/package-debian-rootfs.sh').read_text()
+ROCKNIX = (PROJECT / 'scripts/package-rocknix-rootfs.sh').read_text()
 
 
 def array(source, name):
@@ -124,6 +126,45 @@ class PlatformPayloadTests(unittest.TestCase):
 
     def test_armada_requires_a_platform_package(self):
         self.assertIn('missing Armada platform package pointer', ARMADA)
+
+    def test_platform_packages_cover_debian_and_rocknix(self):
+        packager = (PROJECT / 'scripts/package-caihong-platform.py').read_text()
+        for entry in ('def deb_package(', 'def rocknix_payload(',
+                      "'archlinuxarm', 'armada', 'debian', 'rocknix'"):
+            self.assertIn(entry, packager)
+        self.assertIn('caihong-platform_{version}-1_arm64.deb', packager)
+        self.assertIn('caihong-platform-{version}-1-rocknix.tar.zst', packager)
+        self.assertNotIn('Maintainer: Osilvfe', packager)
+
+    def test_debian_rootfs_is_a_direct_root_image(self):
+        self.assertIn('mmdebstrap', DEBIAN)
+        self.assertIn('CAIHONG_PLATFORM_IMAGE_BUILD=1', DEBIAN)
+        self.assertIn('LABEL=linux / ext4', DEBIAN)
+        self.assertIn('img2simg', DEBIAN)
+        self.assertIn('verify-debian-rootfs.sh', DEBIAN)
+        self.assertIn('LINUX_CAIHONG_DEB', DEBIAN)
+        self.assertIn('CAIHONG_PLATFORM_PACKAGE_DEBIAN', DEBIAN)
+
+    def test_rocknix_rootfs_repacks_the_upstream_system(self):
+        self.assertIn('unsquashfs', ROCKNIX)
+        self.assertIn('ROCKNIX_IMAGE_SHA256', ROCKNIX)
+        self.assertIn('usr/lib/kernel-overlays', ROCKNIX)
+        self.assertIn('configure-platform', ROCKNIX)
+        self.assertIn('LABEL=linux / ext4', ROCKNIX)
+        self.assertIn('img2simg', ROCKNIX)
+        self.assertIn('verify-rocknix-rootfs.sh', ROCKNIX)
+        self.assertIn('CAIHONG_PLATFORM_PACKAGE_ROCKNIX', ROCKNIX)
+        self.assertIn('caihong-adbd.service', ROCKNIX)
+
+    def test_new_rootfs_verifiers_require_their_native_package(self):
+        debian = (PROJECT / 'scripts/verify-debian-rootfs.sh').read_text()
+        rocknix = (PROJECT / 'scripts/verify-rocknix-rootfs.sh').read_text()
+        self.assertIn("ID=debian", debian)
+        self.assertIn('dpkg-query', debian)
+        self.assertIn('sddm.service', debian)
+        self.assertIn('distribution=rocknix', rocknix)
+        self.assertIn('OS_NAME="ROCKNIX"', rocknix)
+        self.assertIn('kernel-overlays', rocknix)
 
     def test_armada_verifier_uses_the_target_rpm_database(self):
         verifier = (PROJECT / 'scripts/verify-armada-rootfs.sh').read_text()

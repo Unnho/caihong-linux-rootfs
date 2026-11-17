@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install validation tools
-        run: sudo apt-get update && sudo apt-get install -y binutils desktop-file-utils libarchive-tools rpm shellcheck zstd
+        run: sudo apt-get update && sudo apt-get install -y binutils desktop-file-utils libarchive-tools mmdebstrap rpm shellcheck squashfs-tools zstd
       - name: Validate scripts
         run: |
           set -euo pipefail
@@ -20,7 +20,9 @@ jobs:
           sh -n \
             packaging/linux-caihong/install-current-slot \
             packaging/linux-caihong/linux-caihong.install \
-            config/armada.env
+            config/armada.env \
+            config/debian.env \
+            config/rocknix.env
           python3 -m compileall -q scripts
           python3 tools/test-rootfs-camera-policy.py
           python3 tools/test-platform-payload.py
@@ -41,6 +43,7 @@ jobs:
             scripts/build-kernel-release.sh \
             scripts/build-linux-caihong-package.sh \
             scripts/build-linux-caihong-rpm.sh \
+            scripts/build-linux-caihong-deb.sh \
             scripts/build-caihong-platform-package.sh \
             scripts/checkout-dependencies.sh \
             scripts/install-caihong-adbd.sh \
@@ -58,8 +61,12 @@ jobs:
             packaging/libssc/run-regression.sh \
             scripts/package-archlinuxarm-rootfs.sh \
             scripts/package-armada-rootfs.sh \
+            scripts/package-debian-rootfs.sh \
+            scripts/package-rocknix-rootfs.sh \
             scripts/verify-caihong-update-packages.sh \
             scripts/verify-armada-rootfs.sh \
+            scripts/verify-debian-rootfs.sh \
+            scripts/verify-rocknix-rootfs.sh \
             packaging/linux-caihong/install-current-slot \
             packaging/caihong-platform/configure-platform \
             packaging/caihong-platform/switch-display-manager.sh \

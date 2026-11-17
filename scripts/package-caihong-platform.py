@@ -136,11 +136,75 @@ cp -a "{stage}"/. %{{buildroot}}/
         shutil.copy2(packages[0], output)
 
 
+def deb_package(stage, output, version):
+    dependencies = list(RUNTIME_PACKAGES['debian'])
+    installed_size = max(1, sum(path.lstat().st_size
+                                for path in (stage / 'usr').rglob('*')
+                                if path.is_file() or path.is_symlink()) // 1024)
+    control = [
+        'Package: caihong-platform',
+        f'Version: {version}-1',
+        'Architecture: arm64',
+        'Maintainer: Ahaan <ahaan.c@icloud.com>',
+        'Section: misc',
+        'Priority: optional',
+        f'Installed-Size: {installed_size}',
+        'Depends: ' + ', '.join(dependencies),
+        'Provides: plasma-camera, power-profiles-daemon',
+        # These packages own files that the device payload replaces with the
+        # vendor-matched build.  The rootfs builder purges them before install.
+        'Conflicts: libcamera-tools, plasma-camera, power-profiles-daemon',
+        'Replaces: libcamera-tools, plasma-camera, power-profiles-daemon',
+        'Description: Caihong device support including NPU runtime',
+        ' Firmware, camera stack, audio routing, sensors, board services and',
+        ' the Qualcomm NPU runtime for the OnePlus Pad Pro (caihong).',
+    ]
+    debian = stage / 'DEBIAN'
+    if debian.exists():
+        raise RuntimeError('staging tree already contains a DEBIAN directory')
+    try:
+        debian.mkdir()
+        (debian / 'control').write_text('\n'.join(control) + '\n')
+        (debian / 'postinst').write_text(
+            '#!/bin/sh\nset -e\n'
+            'if [ -x /usr/libexec/caihong-platform/configure-platform ]; then\n'
+            '    /usr/libexec/caihong-platform/configure-platform\n'
+            'fi\n'
+            'command -v ldconfig >/dev/null 2>&1 && ldconfig || true\n')
+        (debian / 'postinst').chmod(0o755)
+        subprocess.run(['dpkg-deb', '--build', '--root-owner-group',
+                        str(stage), str(output)], check=True)
+    finally:
+        shutil.rmtree(debian, ignore_errors=True)
+
+
+def rocknix_payload(stage, output, version):
+    assets = stage / 'usr/share/caihong-platform'
+    assets.mkdir(parents=True, exist_ok=True)
+    (assets / 'runtime-dependencies').write_text(
+        '\n'.join(RUNTIME_PACKAGES['rocknix']) + '\n')
+    # /etc carries the board policy and service units.  configure-platform
+    # installs it on the image build, exactly like the package formats that
+    # own /etc directly.
+    entries = sorted(path.name for path in stage.iterdir()
+                     if path.name != 'DEBIAN')
+    with tempfile.TemporaryDirectory(dir=output.parent, prefix='platform-rocknix.') as temporary:
+        archive = Path(temporary) / 'payload.tar'
+        subprocess.run(['bsdtar', '--uid', '0', '--gid', '0', '--uname', 'root',
+                        '--gname', 'root', '-cf', str(archive), '-C', str(stage),
+                        *entries], check=True)
+        threads = os.environ.get('ZSTD_THREADS', '1')
+        subprocess.run(['zstd', '-q', '-T' + threads, '-15', '-f',
+                        str(archive), '-o', str(output)], check=True)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('stage', type=Path)
     parser.add_argument('release', type=Path)
-    parser.add_argument('--distribution', choices=('archlinuxarm', 'armada'), required=True)
+    parser.add_argument('--distribution',
+                        choices=('archlinuxarm', 'armada', 'debian', 'rocknix'),
+                        required=True)
     parser.add_argument('--version', required=True)
     arguments = parser.parse_args()
     stage = arguments.stage.resolve()
@@ -181,10 +245,18 @@ def main():
         output = release / f'caihong-platform-{version}-1-aarch64.pkg.tar.zst'
         pointer = 'CAIHONG_PLATFORM_PACKAGE_ARCHLINUXARM'
         build = pacman_package
-    else:
+    elif arguments.distribution == 'armada':
         output = release / f'caihong-platform-{version}-1.aarch64.rpm'
         pointer = 'CAIHONG_PLATFORM_PACKAGE_ARMADA'
         build = rpm_package
+    elif arguments.distribution == 'debian':
+        output = release / f'caihong-platform_{version}-1_arm64.deb'
+        pointer = 'CAIHONG_PLATFORM_PACKAGE_DEBIAN'
+        build = deb_package
+    else:
+        output = release / f'caihong-platform-{version}-1-rocknix.tar.zst'
+        pointer = 'CAIHONG_PLATFORM_PACKAGE_ROCKNIX'
+        build = rocknix_payload
     temporary = output.with_name(output.name + '.new')
     try:
         build(stage, temporary, version)

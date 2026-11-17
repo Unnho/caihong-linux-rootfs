@@ -26,4 +26,31 @@ RUNTIME_PACKAGES = {
         'pipewire-utils', 'pipewire-plugin-libcamera', 'pipewire-gstreamer', 'wireplumber',
         'iio-sensor-proxy', 'v4l-utils',
     ),
+    # Debian package names in the trixie archive.  The multiarch library
+    # packages keep their t64 names so the platform .deb resolves cleanly.
+    'debian': (
+        'bash', 'coreutils', 'findutils', 'systemd', 'util-linux', 'kmod',
+        'python3', 'python3-gi', 'python3-pyside6.qtwidgets', 'bluez',
+        'network-manager', 'e2fsprogs', 'hostapd', 'dnsmasq', 'nftables',
+        'iw', 'iproute2', 'wireless-regdb', 'rtkit', 'polkitd', 'upower',
+        'libglib2.0-0t64', 'libqt6core6t64', 'libqt6qml6', 'libqt6multimedia6',
+        'libqt6sensors6', 'libqt6svg6', 'libqt6waylandclient6',
+        'qml6-module-org-kde-kirigami', 'qml6-module-org-kde-kirigamiaddons-components',
+        'qml6-module-org-kde-config', 'qml6-module-org-kde-coreaddons',
+        'qml6-module-org-kde-i18n-localedata', 'kdialog', 'alsa-utils',
+        'pipewire', 'pipewire-pulse', 'wireplumber',
+        'iio-sensor-proxy', 'v4l-utils', 'plasma-workspace', 'plasma-desktop',
+    ),
+    # ROCKNIX is Buildroot-based and has no package manager.  These names are
+    # the upstream Buildroot packages the payload is linked against; the
+    # payload records them in usr/share/caihong-platform/runtime-dependencies
+    # so a mismatch is visible when ROCKNIX changes its package set.
+    'rocknix': (
+        'systemd', 'bluez', 'networkmanager', 'pipewire', 'wireplumber',
+        'alsa-lib', 'alsa-utils', 'python3', 'python3-gobject',
+        'qt6base', 'qt6declarative', 'qt6multimedia', 'qt6sensors', 'qt6svg',
+        'qt6wayland', 'kirigami', 'kconfig', 'kcoreaddons', 'ki18n',
+        'libdrm', 'libva', 'mesa', 'iio-sensor-proxy', 'v4l-utils',
+        'inputplumber', 'wireless-regdb',
+    ),
 }

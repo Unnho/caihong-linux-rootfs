@@ -48,6 +48,8 @@ root=PARTLABEL=linux rootfstype=ext4 rootwait rw
   和配套内核模块的 pacman 软件包。
 - `linux-caihong-<version>-1.aarch64.rpm`：供 Fedora 基础 Armada 使用的 RPM，
   内容与 pacman 包相同。
+- `linux-caihong_<version>-1_arm64.deb`：Debian 内核包，包含同样的 boot 镜像
+  和内核模块。
 - `caihong-platform-<version>-1-aarch64.pkg.tar.zst`：Arch Linux ARM 原生平台包，
   包含 Caihong 服务、固件、
   工具、Caihong Toolbox、libcamera、Plasma Camera、qbootctl、带 Qualcomm
@@ -57,6 +59,16 @@ root=PARTLABEL=linux rootfstype=ext4 rootwait rw
 - `caihong-platform-<version>-1.aarch64.rpm`：Armada 原生平台 RPM，包含同样的
   基础硬件组件、Caihong Toolbox 和 NPU，按 Fedora 的 `lib64` 布局构建。
   不再单独交付 NPU 压缩包。
+- `caihong-platform_<version>-1_arm64.deb`：Debian 原生平台包，使用 Debian 的
+  `lib` 布局。
+- `caihong-platform-<version>-1-rocknix.tar.zst`：ROCKNIX 平台载荷。ROCKNIX
+  基于 Buildroot，没有包管理器，该载荷只在构建镜像时安装，不作为更新包发布。
+
+Debian 和 ROCKNIX 镜像分别发布为
+`caihong-debian-rootfs-<kernel-release>.ext4.sparse.img.zst` 和
+`caihong-rocknix-rootfs-<kernel-release>.ext4.sparse.img.zst`，压缩和分片规则
+与 Arch Linux ARM 镜像相同，并使用相同的 `caihong-boot-linux-*.img` 或
+`caihong-boot-userdata-*.img` 启动。
 
 两种平台包都声明音频、传感器、Qt 图形界面及 PipeWire 相机插件的运行依赖，
 由 pacman／DNF 安装；设备固件、前后摄全分辨率与合并像素模式的 BPS 表、
@@ -84,6 +96,37 @@ Gamescope、KDE Plasma 以及其他 Armada 组件，并叠加配套的 Caihong �
 镜像。默认 Armada 用户名和密码均为 `armada`，首次启动后应立即修改密码。下方
 安装步骤同样适用于 Armada，只需将 `caihong-rootfs-*` 替换为配套的
 `caihong-armada-rootfs-*` 文件。
+
+## Debian rootfs
+
+`caihong-debian-rootfs-*` 使用
+[`mmdebstrap`](https://salsa.debian.org/debian/mmdebstrap) 从 Debian 官方仓库
+构建（默认 `trixie`，`main contrib non-free non-free-firmware`），安装本仓库
+构建的 `linux-caihong` 和 `caihong-platform` DEB，保留 KDE Plasma 与 SDDM，
+并使用本文描述的直接根分区 ext4 布局。桌面账户为 `caihong`，初始密码同为
+`caihong`，首次启动后必须修改。套件、镜像源、组件和账户可在
+`config/debian.env` 中覆盖。
+
+Debian 使用 APT 更新：先完整升级系统，再安装 Release 中配套的两个 DEB。
+
+```sh
+sudo apt update && sudo apt full-upgrade
+sudo apt install --no-install-recommends \
+  ./caihong-platform_<version>-1_arm64.deb \
+  ./linux-caihong_<version>-1_arm64.deb
+```
+
+## ROCKNIX rootfs
+
+`caihong-rocknix-rootfs-*` 目前为实验性镜像。ROCKNIX 基于 Buildroot，正常情况
+下通过自带 initramfs 启动 FAT 分区上的 squashfs `SYSTEM`。本仓库的构建脚本会
+解包固定版本的上游 SM8650 发布、安装 Caihong 内核模块、固件和平台运行时，再
+重新打包为标记为 `linux` 的直接根分区 ext4 镜像。ROCKNIX 自身的会话、
+EmulationStation、gamescope、sway 和 root 账户保持不变，不使用显示管理器。
+
+ROCKNIX 没有包管理器，更新方式是刷写更新后的镜像。该布局中的 `/storage`
+位于根文件系统内，刷写前请先备份其中内容。上游版本和校验值固定在
+`config/rocknix.env` 中。
 
 ## 安装方法
 

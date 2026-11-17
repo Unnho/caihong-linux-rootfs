@@ -1,6 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 Osilvfe <osilvfe@gmail.com>
+# Copyright (c) 2026 Ahaan <ahaan.c@icloud.com>
 set -eu
 CDPATH=
 
@@ -9,10 +10,17 @@ release_dir=${1:-"$project_dir/release"}
 version=${CAIHONG_PLATFORM_VERSION:-0.$(git -C "$project_dir" log -1 --format=%ct).g$(git -C "$project_dir" rev-parse --short HEAD)}
 kernel_release=${KERNEL_RELEASE:-}
 distribution=${DISTRIBUTION:-archlinuxarm}
+if [ "$distribution" = debian ]; then
+	# shellcheck source=../config/debian.env
+	# shellcheck disable=SC1091
+	. "$project_dir/config/debian.env"
+fi
 case $distribution in
 	archlinuxarm) libdir=${LIBDIR:-lib} ;;
 	armada) libdir=${LIBDIR:-lib64} ;;
-	*) echo "DISTRIBUTION must be archlinuxarm or armada" >&2; exit 2 ;;
+	debian) libdir=${LIBDIR:-lib} ;;
+	rocknix) libdir=${LIBDIR:-lib} ;;
+	*) echo "DISTRIBUTION must be archlinuxarm, armada, debian or rocknix" >&2; exit 2 ;;
 esac
 build_root=${CAIHONG_BUILD_ROOT:-"$project_dir/build/platform-build-root-$distribution"}
 
@@ -27,7 +35,9 @@ case $libdir in
 	*) echo "LIBDIR must be lib or lib64" >&2; exit 2 ;;
 esac
 if { [ "$distribution" = archlinuxarm ] && [ "$libdir" != lib ]; } ||
-	{ [ "$distribution" = armada ] && [ "$libdir" != lib64 ]; }; then
+	{ [ "$distribution" = armada ] && [ "$libdir" != lib64 ]; } ||
+	{ [ "$distribution" = debian ] && [ "$libdir" != lib ]; } ||
+	{ [ "$distribution" = rocknix ] && [ "$libdir" != lib ]; }; then
 	echo "incorrect library layout for $distribution: $libdir" >&2
 	exit 2
 fi
@@ -67,30 +77,67 @@ cleanup()
 trap cleanup EXIT HUP INT TERM
 
 cp -a "$project_dir/rootfs/archlinuxarm/." "$stage/"
-if [ "$distribution" = armada ]; then
-	cp -a "$project_dir/rootfs/armada/." "$stage/"
+case $distribution in
+	armada)
+		cp -a "$project_dir/rootfs/armada/." "$stage/"
+		account=armada home=/var/home/armada
+		;;
+	debian)
+		cp -a "$project_dir/rootfs/debian/." "$stage/"
+		account=$DEBIAN_ACCOUNT home=/home/$DEBIAN_ACCOUNT
+		;;
+	rocknix)
+		cp -a "$project_dir/rootfs/rocknix/." "$stage/"
+		# ROCKNIX has no desktop account; its session runs as root.
+		account=root home=/root
+		;;
+	*)
+		account=alarm home=/home/alarm
+		;;
+esac
+if [ "$account" != alarm ]; then
 	for path in \
 		etc/systemd/system/caihong-clean-pogo-kde.service \
+		etc/systemd/system/caihong-adbd.service.d/20-user.conf \
 		usr/local/sbin/caihong-clean-pogo-kde \
 		usr/local/sbin/caihong-fix-kwin-brightness; do
+		[ -e "$stage/$path" ] || continue
 		sed -i \
-			-e 's#/home/alarm#/var/home/armada#g' \
-			-e 's#machine=alarm@#machine=armada@#g' \
-			-e 's#-o alarm -g alarm#-o armada -g armada#g' \
-			-e 's#chown alarm:alarm#chown armada:armada#g' \
+			-e "s#/home/alarm#$home#g" \
+			-e "s#machine=alarm@#machine=$account@#g" \
+			-e "s#-o alarm -g alarm#-o $account -g $account#g" \
+			-e "s#chown alarm:alarm#chown $account:$account#g" \
+			-e "s#^User=alarm\$#User=$account#" \
+			-e "s#^Group=alarm\$#Group=$account#" \
+			-e "s#^ADBD_USER=alarm\$#ADBD_USER=$account#" \
 			"$stage/$path"
-		if grep -Eq '/home/alarm|machine=alarm@' "$stage/$path"; then
-			echo "unadapted Armada account reference: $path" >&2
+		if grep -Eq '/home/alarm|machine=alarm@|^User=alarm$|^Group=alarm$|^ADBD_USER=alarm$' \
+			"$stage/$path"; then
+			echo "unadapted account reference: $path" >&2
 			exit 1
 		fi
 	done
+	# Each distribution keeps its own sudo policy file.
+	if [ "$account" = root ]; then
+		# A root session does not need a sudoers entry.
+		rm -f -- "$stage/etc/sudoers.d/10-alarm"
+	else
+		if [ -f "$stage/etc/sudoers.d/10-alarm" ]; then
+			sed "s/^alarm /$account /" "$stage/etc/sudoers.d/10-alarm" \
+				> "$stage/etc/sudoers.d/10-$account"
+			chmod 0440 "$stage/etc/sudoers.d/10-$account"
+			rm -f -- "$stage/etc/sudoers.d/10-alarm"
+		fi
+	fi
+fi
+if [ "$distribution" != archlinuxarm ]; then
+	# Debian and Buildroot keep filesystem utilities in /usr/sbin.
 	sed -i 's#/usr/bin/resize2fs#/usr/sbin/resize2fs#g' \
 		"$stage/etc/systemd/system/caihong-grow-rootfs.service"
-	# Armada has its own account layout and does not use the Arch alarm user.
-	rm -f -- "$stage/etc/sudoers.d/10-alarm"
 fi
 
-if [ "$distribution" = archlinuxarm ] || [ "$distribution" = armada ]; then
+if [ "$distribution" = archlinuxarm ] || [ "$distribution" = armada ] ||
+	[ "$distribution" = debian ] || [ "$distribution" = rocknix ]; then
 	"$project_dir/scripts/caihong-build-root.sh" prepare \
 		"$build_root" "$distribution"
 	CAIHONG_BUILD_ROOT="$build_root" \

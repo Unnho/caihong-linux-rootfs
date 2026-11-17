@@ -12,16 +12,19 @@ PROJECT = Path(__file__).resolve().parents[1]
 def source_paths(project, distribution):
     required = set()
     overlays = [project / 'rootfs/archlinuxarm']
-    if distribution == 'armada':
-        overlays.append(project / 'rootfs/armada')
+    if distribution in ('armada', 'debian', 'rocknix'):
+        overlays.append(project / f'rootfs/{distribution}')
     ucm = 'usr/share/alsa/ucm2/conf.d/sm8650/SM8650-MTP.conf'
     for overlay in overlays:
         for path in overlay.rglob('*'):
             if not path.is_file() and not path.is_symlink():
                 continue
             relative = path.relative_to(overlay).as_posix()
-            if distribution == 'armada' and relative == 'etc/sudoers.d/10-alarm':
-                continue
+            if relative == 'etc/sudoers.d/10-alarm':
+                if distribution == 'debian':
+                    relative = 'etc/sudoers.d/10-caihong'
+                elif distribution in ('armada', 'rocknix'):
+                    continue
             if relative.startswith('etc/') or relative == ucm:
                 relative = 'usr/share/caihong-platform/defaults/' + relative
             required.add(relative)
@@ -41,6 +44,13 @@ def verify_dependencies(metadata, distribution):
     if distribution == 'archlinuxarm':
         dependencies = {line.removeprefix('depend = ').split()[0]
                         for line in metadata.splitlines() if line.startswith('depend = ')}
+    elif distribution == 'debian':
+        dependencies = set()
+        for line in metadata.splitlines():
+            if line.startswith('Depends:'):
+                dependencies.update(
+                    item.split('|')[0].split()[0].split(':')[0].strip()
+                    for item in line.removeprefix('Depends:').split(','))
     else:
         dependencies = {line.split()[0] for line in metadata.splitlines() if line.strip()}
     missing = set(RUNTIME_PACKAGES[distribution]) - dependencies
@@ -49,6 +59,17 @@ def verify_dependencies(metadata, distribution):
 
 
 def read_archive(package, action, *members):
+    if package.suffix == '.deb':
+        with subprocess.Popen(['dpkg-deb', '--fsys-tarfile', str(package)],
+                              stdout=subprocess.PIPE) as source:
+            result = subprocess.run(
+                ['bsdtar', action, '-',
+                 *('./' + name.removeprefix('./') for name in members)],
+                stdin=source.stdout, text=True, capture_output=True, check=True)
+            source.stdout.close()
+            if source.wait():
+                raise RuntimeError(f'cannot read DEB payload: {package}')
+        return result.stdout
     if package.suffix != '.rpm':
         return subprocess.check_output(['bsdtar', action, str(package), *members], text=True)
     with subprocess.Popen(['rpm2cpio', str(package)], stdout=subprocess.PIPE) as source:
@@ -63,7 +84,7 @@ def read_archive(package, action, *members):
 def verify(release, distribution, libdir, suffix):
     pointer = release / ('CAIHONG_PLATFORM_PACKAGE_' + distribution.upper())
     name = pointer.read_text().strip()
-    if Path(name).name != name or not name.startswith('caihong-platform-') or not name.endswith(suffix):
+    if Path(name).name != name or not name.startswith('caihong-platform') or not name.endswith(suffix):
         raise ValueError(f'invalid native platform pointer: {pointer}')
     package = release / name
     if read_archive(package, '-xOf', 'usr/share/caihong-platform/distribution').strip() != distribution:
@@ -78,6 +99,20 @@ def verify(release, distribution, libdir, suffix):
             raise ValueError('invalid pacman platform metadata')
         if not {'.INSTALL', '.MTREE'} <= listing:
             raise ValueError('missing native pacman install hooks')
+        verify_dependencies(metadata, distribution)
+    elif distribution == 'debian':
+        metadata = subprocess.check_output(
+            ['dpkg-deb', '-f', str(package), 'Package', 'Version',
+             'Architecture', 'Depends'], text=True)
+        fields = dict(line.split(': ', 1) for line in metadata.splitlines() if ': ' in line)
+        if fields.get('Package') != 'caihong-platform' or fields.get('Architecture') != 'arm64':
+            raise ValueError('invalid DEB platform metadata')
+        verify_dependencies(metadata, distribution)
+        if not any(path in listing for path in ('usr/libexec/caihong-platform/configure-platform',)):
+            raise ValueError('missing DEB platform installer')
+    elif distribution == 'rocknix':
+        metadata = read_archive(
+            package, '-xOf', 'usr/share/caihong-platform/runtime-dependencies')
         verify_dependencies(metadata, distribution)
     else:
         metadata = subprocess.check_output(['rpm', '-qp', '--queryformat', '%{NAME} %{ARCH}', str(package)], text=True)
@@ -164,6 +199,8 @@ def main():
     arguments = parser.parse_args()
     verify(arguments.release, 'archlinuxarm', 'lib', '-aarch64.pkg.tar.zst')
     verify(arguments.release, 'armada', 'lib64', '-1.aarch64.rpm')
+    verify(arguments.release, 'debian', 'lib', '_arm64.deb')
+    verify(arguments.release, 'rocknix', 'lib', '-1-rocknix.tar.zst')
 
 
 if __name__ == '__main__':

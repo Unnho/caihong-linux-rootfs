@@ -2,9 +2,10 @@
 
 English | [简体中文](README.zh-CN.md)
 
-This repository builds an Arch Linux ARM userspace, matching mainline Linux
-kernel, and Android boot images for the OnePlus Pad Pro (`caihong`). It is a
-development release for this device; review the status table before installing.
+This repository builds Arch Linux ARM, Debian, ROCKNIX and experimental Armada
+userspaces, a matching mainline Linux kernel, and Android boot images for the
+OnePlus Pad Pro (`caihong`). It is a development release for this device;
+review the status table before installing.
 
 ## Device status
 
@@ -39,6 +40,8 @@ development release for this device; review the status table before installing.
   both direct-root boot images and the matching kernel modules.
 - `linux-caihong-<version>-1.aarch64.rpm`: RPM package for Fedora-based Armada
   containing the same kernel payload.
+- `linux-caihong_<version>-1_arm64.deb`: Debian kernel package containing the
+  same boot images and module tree.
 - `caihong-platform-<version>-1-aarch64.pkg.tar.zst`: the native Arch Linux ARM package
   for Caihong services, firmware, tools, Caihong Toolbox, libcamera, Plasma
   Camera, qbootctl, power-profiles-daemon with the Qualcomm CPU driver, the
@@ -49,6 +52,17 @@ development release for this device; review the status table before installing.
 - `caihong-platform-<version>-1.aarch64.rpm`: the native Armada platform RPM with
   the same core hardware components, Caihong Toolbox and NPU runtime, built for
   Fedora's `lib64` layout. No standalone NPU archive is published.
+- `caihong-platform_<version>-1_arm64.deb`: the native Debian platform package
+  with the same components for Debian's `lib` layout.
+- `caihong-platform-<version>-1-rocknix.tar.zst`: the ROCKNIX platform payload.
+  ROCKNIX is Buildroot-based and has no package manager, so this payload is
+  installed while the image is built and is not an update package.
+
+Debian and ROCKNIX images are published as
+`caihong-debian-rootfs-<kernel-release>.ext4.sparse.img.zst` and
+`caihong-rocknix-rootfs-<kernel-release>.ext4.sparse.img.zst`. They use the
+same split and compression rules as the Arch Linux ARM image and boot from the
+same `caihong-boot-linux-*.img` or `caihong-boot-userdata-*.img` file.
 
 Both platform packages declare the audio, sensor, Qt GUI and PipeWire camera
 runtime dependencies for pacman/DNF to install. Device firmware, BPS tables for
@@ -64,10 +78,10 @@ used for installable assets.
 
 ## Experimental Armada rootfs
 
-The unified release workflow builds both the regular
-`caihong-rootfs-*` and experimental `caihong-armada-rootfs-*` images on a
-GitHub ARM64 runner. The two rootfs build jobs run in parallel; CI source
-validation remains separate.
+The unified release workflow builds the regular `caihong-rootfs-*`,
+`caihong-debian-rootfs-*`, `caihong-rocknix-rootfs-*` and experimental
+`caihong-armada-rootfs-*` images on a GitHub ARM64 runner. The rootfs build
+jobs run in parallel; CI source validation remains separate.
 
 The image is assembled directly from the upstream
 [`ghcr.io/armada-os/armada:stable`](https://github.com/armada-os/armada)
@@ -83,6 +97,41 @@ not enabled in this packaging; install a newly built image to update it. The
 default Armada account and password are both `armada` and should be changed
 after the first boot. The installation steps below also apply to Armada; use
 the matching `caihong-armada-rootfs-*` file in place of `caihong-rootfs-*`.
+
+## Debian rootfs
+
+The `caihong-debian-rootfs-*` image is assembled with
+[`mmdebstrap`](https://salsa.debian.org/debian/mmdebstrap) from the official
+Debian archive (default `trixie`, `main contrib non-free non-free-firmware`).
+It installs the native `linux-caihong` and `caihong-platform` DEBs, keeps KDE
+Plasma with SDDM, and uses the direct-root ext4 layout described in this
+document. The desktop account is `caihong`; its password is `caihong` and must
+be changed after the first boot. The suite, mirror, components and account can
+be overridden through `config/debian.env`.
+
+Debian updates use APT. Fully upgrade the system, then install both matching
+DEBs from the release:
+
+```sh
+sudo apt update && sudo apt full-upgrade
+sudo apt install --no-install-recommends \
+  ./caihong-platform_<version>-1_arm64.deb \
+  ./linux-caihong_<version>-1_arm64.deb
+```
+
+## ROCKNIX rootfs
+
+The `caihong-rocknix-rootfs-*` image is experimental. ROCKNIX is
+Buildroot-based and normally boots a squashfs `SYSTEM` payload through its own
+initramfs. This builder unpacks the pinned upstream SM8650 release, installs
+the Caihong kernel modules, firmware and platform runtime, and repacks the
+result as a direct-root ext4 image labelled `linux`. ROCKNIX's own session,
+EmulationStation, gamescope, sway and its root account are preserved; the
+image does not use a display manager.
+
+ROCKNIX has no package manager. Update it by flashing a newer image; `/storage`
+is part of the root filesystem in this layout, so back up its contents first.
+The upstream release and checksum are pinned in `config/rocknix.env`.
 
 ## Installation
 
@@ -104,8 +153,10 @@ Download one boot image and all rootfs image parts from the Release:
 
 - Dual boot uses `caihong-boot-linux-<kernel-release>.img`.
 - Single system uses `caihong-boot-userdata-<kernel-release>.img`.
-- Both layouts use the same compressed
-  `caihong-rootfs-<kernel-release>.ext4.sparse.img.zst` stream.
+- The boot image is shared by every distribution. Pick one rootfs stream:
+  `caihong-rootfs-*.ext4.sparse.img.zst` for Arch Linux ARM,
+  `caihong-debian-rootfs-*` for Debian, `caihong-rocknix-rootfs-*` for ROCKNIX
+  or `caihong-armada-rootfs-*` for Armada.
 
 Compare every downloaded file with the SHA-256 values in the Release
 description. The rootfs parts are not individually decompressible or
@@ -317,6 +368,13 @@ Upgrade a Fedora-based Armada installation with the matching RPM:
 sudo dnf upgrade --refresh && sudo dnf install ./linux-caihong-*-1.aarch64.rpm
 ```
 
+Upgrade a Debian installation with the matching DEB:
+
+```sh
+sudo apt update && sudo apt full-upgrade
+sudo apt install --allow-downgrades ./linux-caihong_*_arm64.deb
+```
+
 The package reads the slot recorded during the current boot, selects the image
 matching the actual `linux` or `userdata` root partition, writes only that
 running slot, and verifies the written bytes. It does not alter the A/B active,
@@ -326,7 +384,8 @@ bootable, or successful flags.
 
 Existing rootfs installations do not need reflashing. **Fully upgrade all system
 packages before installing update packages**: run `sudo pacman -Syu` on Arch Linux
-ARM or `sudo dnf upgrade --refresh` on Armada. Update packages do not bundle all
+ARM, `sudo dnf upgrade --refresh` on Armada or `sudo apt update && sudo apt
+full-upgrade` on Debian. Update packages do not bundle all
 distribution runtime libraries, and the installer does not upgrade the system
 automatically. Updating only device components or individual dependencies can
 cause library version mismatches. If the system upgrade fails, resolve the error
@@ -349,6 +408,15 @@ sudo dnf upgrade --refresh && sudo dnf install --allowerasing \
   ./linux-caihong-<kernel-version>-1.aarch64.rpm
 ```
 
+On Debian, install both DEBs with APT:
+
+```sh
+sudo apt update && sudo apt full-upgrade
+sudo apt install --allow-downgrades --no-install-recommends \
+  ./caihong-platform_<version>-1_arm64.deb \
+  ./linux-caihong_<kernel-version>-1_arm64.deb
+```
+
 On Arch devices previously updated with the legacy tar installer, add
 `--overwrite 'usr/*'` to the first `pacman -U` command to adopt the existing
 unregistered payload files. Do not use it for later native-package upgrades.
@@ -365,9 +433,9 @@ from repeating on later upgrades or at boot. Arch still needs the initial
 `--overwrite 'usr/*'` because pacman checks file conflicts before running package
 hooks.
 
-Binaries, firmware and configuration templates are now tracked by pacman/RPM.
-Check the installed version with `pacman -Q caihong-platform` or
-`rpm -q caihong-platform`. Existing `/etc` configuration and service enablement
+Binaries, firmware and configuration templates are now tracked by
+pacman/RPM/DPKG. Check the installed version with `pacman -Q caihong-platform`,
+`rpm -q caihong-platform` or `dpkg-query -W caihong-platform`. Existing `/etc` configuration and service enablement
 are preserved. Systemd candidates are staged under
 `/var/lib/caihong-config-pending/caihong-platform/etc/systemd`; other configuration
 candidates use `.caihong-new`. Review them manually. Do not use the legacy tar

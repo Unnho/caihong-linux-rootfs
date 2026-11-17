@@ -42,10 +42,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             alsa-utils android-sdk-libsparse-utils bc bison build-essential \
-            ccache curl dwarves e2fsprogs flex git kmod libarchive-tools \
+            ccache curl dwarves e2fsprogs file flex git kmod libarchive-tools \
             libegl-dev libelf-dev libgbm-dev libgles-dev libdrm-dev \
-            libssl-dev libva-dev meson ninja-build pkg-config python3 rpm \
-            rsync shellcheck skopeo umoci zstd
+            libssl-dev libva-dev meson mmdebstrap ninja-build pkg-config \
+            python3 rpm rsync shellcheck skopeo squashfs-tools umoci zstd
 
       - name: Restore package downloads
         uses: actions/cache@v4
@@ -83,11 +83,16 @@ jobs:
             KERNEL_CC="ccache gcc" KERNEL_HOSTCC="ccache gcc" \
           scripts/build-kernel-release.sh
           scripts/build-linux-caihong-rpm.sh modules-current release
+          scripts/build-linux-caihong-deb.sh modules-current release
           sudo -E env PATH="$PATH" \
             DISTRIBUTION=archlinuxarm scripts/build-caihong-platform-package.sh release
           sudo -E env PATH="$PATH" \
             DISTRIBUTION=armada LIBDIR=lib64 \
             scripts/build-caihong-platform-package.sh release
+          sudo -E env PATH="$PATH" \
+            DISTRIBUTION=debian scripts/build-caihong-platform-package.sh release
+          sudo -E env PATH="$PATH" \
+            DISTRIBUTION=rocknix scripts/build-caihong-platform-package.sh release
           sudo chown -R "$USER:$USER" release
           scripts/verify-caihong-update-packages.sh release
           kernel_release=$(cat release/KERNEL_RELEASE)
@@ -128,7 +133,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distribution: [archlinuxarm, armada]
+        distribution: [archlinuxarm, armada, debian, rocknix]
     steps:
       - uses: actions/checkout@v4
 
@@ -137,10 +142,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             alsa-utils android-sdk-libsparse-utils bc bison build-essential \
-            ccache curl dwarves e2fsprogs flex git kmod libarchive-tools \
+            ccache curl dwarves e2fsprogs file flex git kmod libarchive-tools \
             libegl-dev libelf-dev libgbm-dev libgles-dev libdrm-dev \
-            libssl-dev libva-dev meson ninja-build pkg-config python3 rpm rsync \
-            shellcheck zstd
+            libssl-dev libva-dev meson mmdebstrap ninja-build pkg-config python3 rpm rsync \
+            shellcheck squashfs-tools zstd
 
       - name: Restore package downloads
         if: matrix.distribution == 'archlinuxarm'
@@ -151,6 +156,14 @@ jobs:
             build/pacman-cache
           key: archlinuxarm-${{ runner.os }}-${{ hashFiles('config/dependencies.env', 'scripts/package-archlinuxarm-rootfs.sh') }}
           restore-keys: archlinuxarm-${{ runner.os }}-
+
+      - name: Restore ROCKNIX payload
+        if: matrix.distribution == 'rocknix'
+        uses: actions/cache@v4
+        with:
+          path: downloads/ROCKNIX-*
+          key: rocknix-${{ runner.os }}-${{ hashFiles('config/rocknix.env') }}
+          restore-keys: rocknix-${{ runner.os }}-
 
       - name: Install Armada dependencies
         if: matrix.distribution == 'armada'
@@ -219,6 +232,33 @@ jobs:
             "release/caihong-armada-rootfs-$kernel_release.ext4.sparse.img"
           sudo chown -R "$USER:$USER" release
 
+      - name: Build Debian rootfs
+        if: matrix.distribution == 'debian'
+        run: |
+          kernel_release=$(cat release/KERNEL_RELEASE)
+          sudo -E env \
+            KERNEL_DEB="$PWD/release/$(cat release/LINUX_CAIHONG_DEB)" \
+            CAIHONG_PLATFORM_PACKAGE="$PWD/release/$(cat release/CAIHONG_PLATFORM_PACKAGE_DEBIAN)" \
+            MODULE_TREE="$PWD/modules-current" \
+            RELEASE_DIR="$PWD/release" \
+            SPARSE_IMAGE=1 \
+            scripts/package-debian-rootfs.sh \
+            "release/caihong-debian-rootfs-$kernel_release.ext4.sparse.img"
+          sudo chown -R "$USER:$USER" release
+
+      - name: Build ROCKNIX rootfs
+        if: matrix.distribution == 'rocknix'
+        run: |
+          kernel_release=$(cat release/KERNEL_RELEASE)
+          sudo -E env \
+            CAIHONG_PLATFORM_PACKAGE="$PWD/release/$(cat release/CAIHONG_PLATFORM_PACKAGE_ROCKNIX)" \
+            MODULE_TREE="$PWD/modules-current" \
+            RELEASE_DIR="$PWD/release" \
+            SPARSE_IMAGE=1 \
+            scripts/package-rocknix-rootfs.sh \
+            "release/caihong-rocknix-rootfs-$kernel_release.ext4.sparse.img"
+          sudo chown -R "$USER:$USER" release downloads
+
       - name: Cache rootfs build
         uses: actions/cache/save@v4
         with:
@@ -251,22 +291,12 @@ jobs:
           sudo chown -R "$USER:$USER" release
           chmod -R u+rwX release
 
-      - name: Restore Arch rootfs
+      - name: Restore and prepare Arch rootfs
         uses: actions/cache/restore@v4
         with:
           key: caihong-rootfs-archlinuxarm-${{ github.run_id }}-${{ github.run_attempt }}
           path: release/*rootfs-*.ext4.sparse.img
           fail-on-cache-miss: true
-
-      - name: Restore Armada rootfs
-        uses: actions/cache/restore@v4
-        with:
-          key: caihong-rootfs-armada-${{ github.run_id }}-${{ github.run_attempt }}
-          path: release/*rootfs-*.ext4.sparse.img
-          fail-on-cache-miss: true
-
-      - name: Restore rootfs permissions
-        run: chmod -R u+rwX release
 
       - name: Prepare Arch release assets
         run: |
@@ -280,6 +310,15 @@ jobs:
             --notes release/ARCH_NOTES.md \
             --manifest release/arch-release-manifest.json \
             --checksums release/SHA256SUMS.arch
+          rm -f "release/caihong-rootfs-$kernel_release.ext4.sparse.img" \
+            "release/caihong-rootfs-$kernel_release.ext4.sparse.img.zst"
+
+      - name: Restore Armada rootfs
+        uses: actions/cache/restore@v4
+        with:
+          key: caihong-rootfs-armada-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release/*rootfs-*.ext4.sparse.img
+          fail-on-cache-miss: true
 
       - name: Prepare Armada release assets
         run: |
@@ -293,51 +332,114 @@ jobs:
             --notes release/ARMADA_NOTES.md \
             --manifest release/armada-release-manifest.json \
             --checksums release/SHA256SUMS.armada
+          rm -f "release/caihong-armada-rootfs-$kernel_release.ext4.sparse.img" \
+            "release/caihong-armada-rootfs-$kernel_release.ext4.sparse.img.zst"
+
+      - name: Restore Debian rootfs
+        uses: actions/cache/restore@v4
+        with:
+          key: caihong-rootfs-debian-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release/*rootfs-*.ext4.sparse.img
+          fail-on-cache-miss: true
+
+      - name: Prepare Debian release assets
+        run: |
+          kernel_release=$(cat release/KERNEL_RELEASE)
+          scripts/prepare-release-assets.py \
+            --release-dir release \
+            --distribution debian \
+            --rootfs "release/caihong-debian-rootfs-$kernel_release.ext4.sparse.img" \
+            --dependencies build/dependencies.resolved.env \
+            --assets release/debian-assets \
+            --notes release/DEBIAN_NOTES.md \
+            --manifest release/debian-release-manifest.json \
+            --checksums release/SHA256SUMS.debian
+          rm -f "release/caihong-debian-rootfs-$kernel_release.ext4.sparse.img" \
+            "release/caihong-debian-rootfs-$kernel_release.ext4.sparse.img.zst"
+
+      - name: Restore ROCKNIX rootfs
+        uses: actions/cache/restore@v4
+        with:
+          key: caihong-rootfs-rocknix-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release/*rootfs-*.ext4.sparse.img
+          fail-on-cache-miss: true
+
+      - name: Prepare ROCKNIX release assets
+        run: |
+          kernel_release=$(cat release/KERNEL_RELEASE)
+          scripts/prepare-release-assets.py \
+            --release-dir release \
+            --distribution rocknix \
+            --rootfs "release/caihong-rocknix-rootfs-$kernel_release.ext4.sparse.img" \
+            --dependencies build/dependencies.resolved.env \
+            --assets release/rocknix-assets \
+            --notes release/ROCKNIX_NOTES.md \
+            --manifest release/rocknix-release-manifest.json \
+            --checksums release/SHA256SUMS.rocknix
+          rm -f "release/caihong-rocknix-rootfs-$kernel_release.ext4.sparse.img" \
+            "release/caihong-rocknix-rootfs-$kernel_release.ext4.sparse.img.zst"
 
       - name: Assemble publishable release assets
         run: |
           set -euo pipefail
-          for source in release/armada-assets/*; do
-            target=release/assets/${source##*/}
-            if [[ -e $target ]]; then
-              case ${source##*/} in
-                caihong-boot-*.img) cmp "$source" "$target" ;;
-                *)
-                  echo "unexpected duplicate release asset: ${source##*/}" >&2
-                  exit 1
-                  ;;
-              esac
-              rm "$source"
-            else
-              mv "$source" "$target"
-            fi
+          for directory in armada debian rocknix; do
+            for source in "release/${directory}-assets"/*; do
+              target=release/assets/${source##*/}
+              if [[ -e $target ]]; then
+                case ${source##*/} in
+                  caihong-boot-*.img) cmp "$source" "$target" ;;
+                  *)
+                    echo "unexpected duplicate release asset: ${source##*/}" >&2
+                    exit 1
+                    ;;
+                esac
+                rm "$source"
+              else
+                mv "$source" "$target"
+              fi
+            done
+            rmdir "release/${directory}-assets"
           done
-          rmdir release/armada-assets
 
           shopt -s nullglob
           boot=(release/assets/caihong-boot-*.img)
           arch_rootfs=(release/assets/caihong-rootfs-*.ext4.sparse.img.zst*)
           armada_rootfs=(release/assets/caihong-armada-rootfs-*.ext4.sparse.img.zst*)
+          debian_rootfs=(release/assets/caihong-debian-rootfs-*.ext4.sparse.img.zst*)
+          rocknix_rootfs=(release/assets/caihong-rocknix-rootfs-*.ext4.sparse.img.zst*)
           pacman=(release/assets/linux-caihong-*-aarch64.pkg.tar.zst)
           rpm=(release/assets/linux-caihong-*-1.aarch64.rpm)
+          deb=(release/assets/linux-caihong_*_arm64.deb)
           platform_pacman=(release/assets/caihong-platform-*-aarch64.pkg.tar.zst)
           platform_rpm=(release/assets/caihong-platform-*-1.aarch64.rpm)
+          platform_deb=(release/assets/caihong-platform_*_arm64.deb)
+          platform_rocknix=(release/assets/caihong-platform-*-1-rocknix.tar.zst)
           (( ${#boot[@]} == 2 ))
           (( ${#arch_rootfs[@]} >= 1 ))
           (( ${#armada_rootfs[@]} >= 1 ))
+          (( ${#debian_rootfs[@]} >= 1 ))
+          (( ${#rocknix_rootfs[@]} >= 1 ))
           (( ${#pacman[@]} == 1 ))
           (( ${#rpm[@]} == 1 ))
+          (( ${#deb[@]} == 1 ))
           (( ${#platform_pacman[@]} == 1 ))
           (( ${#platform_rpm[@]} == 1 ))
+          (( ${#platform_deb[@]} == 1 ))
+          (( ${#platform_rocknix[@]} == 1 ))
           for asset in release/assets/*; do
             case ${asset##*/} in
               caihong-boot-*.img|\
               caihong-rootfs-*.ext4.sparse.img.zst*|\
               caihong-armada-rootfs-*.ext4.sparse.img.zst*|\
+              caihong-debian-rootfs-*.ext4.sparse.img.zst*|\
+              caihong-rocknix-rootfs-*.ext4.sparse.img.zst*|\
               linux-caihong-*-aarch64.pkg.tar.zst|\
               linux-caihong-*-1.aarch64.rpm|\
+              linux-caihong_*_arm64.deb|\
               caihong-platform-*-aarch64.pkg.tar.zst|\
-              caihong-platform-*-1.aarch64.rpm) ;;
+              caihong-platform-*-1.aarch64.rpm|\
+              caihong-platform_*_arm64.deb|\
+              caihong-platform-*-1-rocknix.tar.zst) ;;
               *)
                 echo "unexpected published release asset: ${asset##*/}" >&2
                 exit 1
@@ -350,6 +452,10 @@ jobs:
             cat release/ARCH_NOTES.md
             printf '\n%s\n\n' '## Armada'
             cat release/ARMADA_NOTES.md
+            printf '\n%s\n\n' '## Debian'
+            cat release/DEBIAN_NOTES.md
+            printf '\n%s\n\n' '## ROCKNIX'
+            cat release/ROCKNIX_NOTES.md
           } > release/RELEASE_NOTES.md
 
       - name: Install artifact uploader
@@ -392,7 +498,7 @@ jobs:
             done
             while IFS= read -r asset; do
               case "$asset" in
-                caihong-boot-*|caihong-rootfs-*|caihong-armada-rootfs-*|linux-caihong-*|caihong-platform-*|caihong-npu-*|caihong-armada-release-manifest.json|arch-release-manifest.json|armada-release-manifest.json|SHA256SUMS.arch|SHA256SUMS.armada|ARMADA_NOTES.md)
+                caihong-boot-*|caihong-rootfs-*|caihong-armada-rootfs-*|caihong-debian-rootfs-*|caihong-rocknix-rootfs-*|linux-caihong-*|linux-caihong_*|caihong-platform-*|caihong-platform_*|caihong-npu-*|caihong-armada-release-manifest.json|arch-release-manifest.json|armada-release-manifest.json|debian-release-manifest.json|rocknix-release-manifest.json|SHA256SUMS.arch|SHA256SUMS.armada|SHA256SUMS.debian|SHA256SUMS.rocknix|ARMADA_NOTES.md|DEBIAN_NOTES.md|ROCKNIX_NOTES.md)
                   if [[ -z ${current_assets[$asset]+present} ]]; then
                     gh release delete-asset "$tag" "$asset" --yes
                   fi

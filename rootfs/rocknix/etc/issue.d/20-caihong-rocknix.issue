@@ -1,0 +1,4 @@
+Caihong ROCKNIX (experimental)
+
+This image combines the upstream ROCKNIX userspace with the Caihong kernel,
+modules, firmware and board services.

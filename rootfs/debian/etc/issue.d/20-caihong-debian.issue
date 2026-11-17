@@ -1,0 +1,4 @@
+Caihong Debian (experimental)
+
+This image combines the official Debian userspace with the Caihong kernel,
+modules, firmware and board services.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-only
 # Copyright (c) 2026 Osilvfe <osilvfe@gmail.com>
+# Copyright (c) 2026 Ahaan <ahaan.c@icloud.com>
 """Prepare installable GitHub release assets and release notes."""
 
 from __future__ import annotations
@@ -173,7 +174,7 @@ def write_release_notes(
         f"{asset_hashes[asset.name]}  {asset.name}\n" for asset in assets
     )
     platform_package = next(
-        (asset for asset in assets if asset.name.startswith("caihong-platform-")),
+        (asset for asset in assets if asset.name.startswith("caihong-platform")),
         None,
     )
     pacman_package = next(
@@ -182,6 +183,10 @@ def write_release_notes(
     )
     rpm_package = next(
         (asset for asset in assets if asset.name.startswith("linux-caihong-") and asset.name.endswith("-1.aarch64.rpm")),
+        None,
+    )
+    deb_package = next(
+        (asset for asset in assets if asset.name.startswith("linux-caihong_") and asset.name.endswith("_arm64.deb")),
         None,
     )
     if not platform_package:
@@ -193,7 +198,7 @@ def write_release_notes(
 sudo pacman -Syu && sudo pacman -U \\
   ./{platform_package.name} ./{pacman_package.name}
 ```"""
-    else:
+    elif distribution == "armada":
         if not rpm_package:
             raise RuntimeError("Armada release notes require a kernel RPM")
         update_instructions = f"""Armada is Fedora-based:
@@ -202,6 +207,21 @@ sudo pacman -Syu && sudo pacman -U \\
 sudo dnf upgrade --refresh && sudo dnf install --allowerasing \\
   ./{platform_package.name} ./{rpm_package.name}
 ```"""
+    elif distribution == "debian":
+        if not deb_package:
+            raise RuntimeError("Debian release notes require a kernel DEB")
+        update_instructions = f"""Debian is APT-based:
+
+```sh
+sudo apt update && sudo apt full-upgrade
+sudo apt install --allow-downgrades --no-install-recommends \\
+  ./{platform_package.name} ./{deb_package.name}
+```"""
+    else:
+        update_instructions = """ROCKNIX has no package manager. Updates are installed by
+flashing the new rootfs image. Flashing replaces `/storage`, which is part of the
+root filesystem in this direct-root layout, so back up anything you want to keep
+before writing the image."""
     source_lines = []
     for component in ("LINUX", "LIBCAMERA", "PLASMA_CAMERA", "QBOOTCTL", "MKBOOTIMG",
                       "POWER_PROFILES_DAEMON"):
@@ -311,7 +331,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--release-dir", type=Path, required=True)
     parser.add_argument(
-        "--distribution", choices=("archlinuxarm", "armada"), required=True
+        "--distribution",
+        choices=("archlinuxarm", "armada", "debian", "rocknix"),
+        required=True,
     )
     parser.add_argument("--rootfs", type=Path, required=True)
     parser.add_argument("--dependencies", type=Path, required=True)
@@ -337,14 +359,17 @@ def main() -> int:
     for root, manifest in boot_manifests.items():
         if manifest.get("root_partlabel") != root:
             raise RuntimeError(f"boot manifest root mismatch for {root}")
-    kernel_package_name = (release_dir / "LINUX_CAIHONG_PACKAGE").read_text().strip()
-    kernel_package = release_dir / kernel_package_name
-    if not kernel_package.is_file():
-        raise RuntimeError(f"kernel package does not exist: {kernel_package}")
-    rpm_package_name = (release_dir / "LINUX_CAIHONG_RPM").read_text().strip()
-    rpm_package = release_dir / rpm_package_name
-    if not rpm_package.is_file():
-        raise RuntimeError(f"kernel RPM does not exist: {rpm_package}")
+    kernel_package_name = None
+    if args.distribution != "rocknix":
+        package_pointer = {
+            "archlinuxarm": "LINUX_CAIHONG_PACKAGE",
+            "armada": "LINUX_CAIHONG_RPM",
+            "debian": "LINUX_CAIHONG_DEB",
+        }[args.distribution]
+        kernel_package_name = (release_dir / package_pointer).read_text().strip()
+        kernel_package = release_dir / kernel_package_name
+        if not kernel_package.is_file():
+            raise RuntimeError(f"kernel package does not exist: {kernel_package}")
 
     compressed_rootfs = release_dir / f"{rootfs.name}.zst"
     print(f"compressing {rootfs.name} before release splitting")
@@ -361,13 +386,13 @@ def main() -> int:
     package_pointers = {
         "archlinuxarm": "CAIHONG_PLATFORM_PACKAGE_ARCHLINUXARM",
         "armada": "CAIHONG_PLATFORM_PACKAGE_ARMADA",
+        "debian": "CAIHONG_PLATFORM_PACKAGE_DEBIAN",
+        "rocknix": "CAIHONG_PLATFORM_PACKAGE_ROCKNIX",
     }
     platform_pointer = package_pointers[args.distribution]
     platform_package = resolve_package_pointer(release_dir, platform_pointer)
-    if args.distribution == "archlinuxarm":
+    if kernel_package_name:
         names.append(kernel_package_name)
-    else:
-        names.append(rpm_package_name)
     names.append(platform_package.name)
     for name in names:
         target = assets / name
@@ -417,17 +442,16 @@ def main() -> int:
         },
         "dependencies": dependencies,
     }
-    if args.distribution == "archlinuxarm":
-        manifest["pacman_package"] = {
+    kernel_package_fields = {
+        "archlinuxarm": "pacman_package",
+        "armada": "kernel_rpm_package",
+        "debian": "kernel_deb_package",
+    }
+    if args.distribution in kernel_package_fields:
+        manifest[kernel_package_fields[args.distribution]] = {
             "name": kernel_package_name,
             "bytes": kernel_package.stat().st_size,
             "sha256": asset_hashes[kernel_package_name],
-        }
-    else:
-        manifest["kernel_rpm_package"] = {
-            "name": rpm_package_name,
-            "bytes": rpm_package.stat().st_size,
-            "sha256": asset_hashes[rpm_package_name],
         }
     manifest["platform_package"] = {
         "name": platform_package.name,
