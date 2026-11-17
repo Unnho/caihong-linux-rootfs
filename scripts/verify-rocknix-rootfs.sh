@@ -53,9 +53,9 @@ required_paths=(
 	usr/share/caihong-platform/runtime-dependencies
 	usr/share/caihong-npu/libdir
 	usr/lib/linux-caihong/kernel-release
-	usr/lib/systemd/system/caihong-adbd.service
-	usr/lib/systemd/system/caihong-grow-rootfs.service
-	usr/lib/systemd/system/caihong-keyboard.service
+	etc/systemd/system/caihong-adbd.service
+	etc/systemd/system/caihong-grow-rootfs.service
+	etc/systemd/system/caihong-keyboard.service
 	usr/lib/systemd/system/caihong-ssc.service
 	usr/bin/plasma-camera
 	usr/bin/cam

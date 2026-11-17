@@ -69,9 +69,9 @@ required_paths=(
 	usr/lib/linux-caihong/install-current-slot
 	usr/lib/linux-caihong/boot-linux.img
 	usr/lib/linux-caihong/boot-userdata.img
-	usr/lib/systemd/system/caihong-adbd.service
-	usr/lib/systemd/system/caihong-grow-rootfs.service
-	usr/lib/systemd/system/caihong-keyboard.service
+	etc/systemd/system/caihong-adbd.service
+	etc/systemd/system/caihong-grow-rootfs.service
+	etc/systemd/system/caihong-keyboard.service
 	usr/lib/systemd/system/caihong-ssc.service
 	usr/lib/systemd/system/caihong-toolbox.service
 	usr/bin/caihong-toolbox
@@ -183,9 +183,10 @@ grep -qx 'LABEL=linux / ext4 rw,noatime 0 1' "$target/etc/fstab" || {
 	failed=1
 }
 
+target_link=$(readlink "$target/etc/systemd/system/display-manager.service" 2>/dev/null || true)
 if [[ ! -L $target/etc/systemd/system/display-manager.service ||
-	$(readlink "$target/etc/systemd/system/display-manager.service") != \
-	/usr/lib/systemd/system/sddm.service ]]; then
+	( $target_link != /usr/lib/systemd/system/sddm.service &&
+	  $target_link != /lib/systemd/system/sddm.service ) ]]; then
 	echo "Debian display manager is not SDDM" >&2
 	failed=1
 fi

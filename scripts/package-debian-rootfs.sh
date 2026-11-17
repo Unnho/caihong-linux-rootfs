@@ -270,6 +270,9 @@ for unit in NetworkManager.service bluetooth.service \
 done
 chroot "$rootfs" "${chroot_env[@]}" systemctl set-default graphical.target \
 	>/dev/null
+# Debian keeps the display-manager alias outside the unit's own enablement.
+ln -sfn /usr/lib/systemd/system/sddm.service \
+	"$rootfs/etc/systemd/system/display-manager.service"
 
 cat > "$rootfs/etc/fstab" <<'EOF'
 LABEL=linux / ext4 rw,noatime 0 1

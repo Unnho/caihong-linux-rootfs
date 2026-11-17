@@ -142,13 +142,17 @@ grep -qx "HW_DEVICE=\"$ROCKNIX_SOC\"" "$rootfs/etc/os-release" || \
 # absolute links.  The staging tree is assembled on the host, where such links
 # resolve outside the image, so rewrite them relative to their own directory.
 # They still resolve to the same paths once the image is booted.
-while IFS= read -r -d '' link; do
-	target=$(readlink -- "$link")
-	[[ $target == /* ]] || continue
-	parent=${link%/*}
-	relative=$(realpath -m --relative-to="$parent" "$rootfs$target")
-	ln -sfn -- "$relative" "$link"
-done < <(find "$rootfs/etc" -type l -print0)
+normalize_etc_links()
+{
+	while IFS= read -r -d '' link; do
+		link_target=$(readlink -- "$link")
+		[[ $link_target == /* ]] || continue
+		parent=${link%/*}
+		relative=$(realpath -m --relative-to="$parent" "$rootfs$link_target")
+		ln -sfn -- "$relative" "$link"
+	done < <(find "$rootfs/etc" -type l -print0)
+}
+normalize_etc_links
 
 # These storage-backed directories receive Caihong configuration during the
 # build.  Create them first so the rewritten links can be followed safely.
@@ -193,6 +197,9 @@ echo "installing the Caihong platform payload"
 bsdtar -xpf "$platform_package" -C "$rootfs"
 CAIHONG_PLATFORM_ROOT="$rootfs" CAIHONG_PLATFORM_IMAGE_BUILD=1 \
 	"$rootfs/usr/libexec/caihong-platform/configure-platform"
+# The platform defaults add their own absolute links under /etc, so normalize
+# the tree once more after they have been copied into place.
+normalize_etc_links
 [[ $(<"$rootfs/usr/share/caihong-platform/kernel-release") == "$kernel_release" ]] || \
 	fail "platform payload does not match $kernel_release"
 
@@ -256,6 +263,9 @@ desktop_account=root
 EOF
 chmod 0644 "$rootfs/etc/caihong-rootfs-build-info"
 : > "$rootfs/etc/machine-id"
+
+# systemctl writes absolute enablement links under /etc; normalize them last.
+normalize_etc_links
 
 "$project_dir/scripts/verify-rocknix-rootfs.sh" "$rootfs"
 
