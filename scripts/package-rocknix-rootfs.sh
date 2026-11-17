@@ -164,7 +164,11 @@ module_stage="$work_dir/module-stage"
 CAIHONG_EXPECTED_RELEASE=$kernel_release \
 	"$project_dir/scripts/install-caihong-modules.sh" \
 	"$module_tree" "$module_stage"
-install -d -m 0755 "$rootfs/usr/lib/modules"
+# /usr/lib/modules is another absolute link into the initramfs overlay.
+if [[ -L $rootfs/usr/lib/modules || ! -d $rootfs/usr/lib/modules ]]; then
+	rm -f -- "$rootfs/usr/lib/modules"
+	install -d -m 0755 "$rootfs/usr/lib/modules"
+fi
 rsync -aHAX --numeric-ids "$module_stage/lib/modules/." \
 	"$rootfs/usr/lib/modules/"
 install -D -m 0644 "$module_stage/etc/modules-load.d/caihong.conf" \
@@ -227,7 +231,7 @@ enable_unit()
 
 for unit in caihong-adbd.service caihong-grow-rootfs.service \
 	caihong-keyboard.service caihong-bluetooth-autostart.service \
-	caihong-bluetooth-late-autostart.timer caihong-hardware-mac.service \
+	caihong-hardware-mac.service \
 	caihong-mark-boot-successful.service caihong-ssc.service \
 	caihong-pen-autoconnect.timer caihong-pen-charge.timer \
 	caihong-pen-pair.timer; do
