@@ -93,7 +93,8 @@ jobs:
             ccache curl dwarves e2fsprogs file flex git kmod libarchive-tools \
             libegl-dev libelf-dev libgbm-dev libgles-dev libdrm-dev \
             libssl-dev libva-dev meson mmdebstrap ninja-build pkg-config \
-            python3 rpm rsync shellcheck skopeo squashfs-tools umoci zstd
+            python3 rpm rsync shellcheck skopeo squashfs-tools umoci zstd \
+            debian-archive-keyring
 
       - name: Restore package downloads
         uses: actions/cache@v4
@@ -219,7 +220,7 @@ jobs:
             ccache curl dwarves e2fsprogs file flex git kmod libarchive-tools \
             libegl-dev libelf-dev libgbm-dev libgles-dev libdrm-dev \
             libssl-dev libva-dev meson mmdebstrap ninja-build pkg-config python3 rpm rsync \
-            shellcheck squashfs-tools zstd
+            shellcheck squashfs-tools zstd debian-archive-keyring
 
       - name: Restore package downloads
         if: matrix.distribution == 'archlinuxarm'
