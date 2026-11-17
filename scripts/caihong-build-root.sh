@@ -327,6 +327,7 @@ case $distribution in
 			libtiff-dev
 			libasound2-dev
 			libsystemd-dev
+			systemd-dev
 			libudev-dev
 			libwayland-dev
 			wayland-protocols
