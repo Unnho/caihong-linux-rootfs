@@ -329,6 +329,8 @@ jobs:
             CAIHONG_PLATFORM_PACKAGE="$PWD/release/$(cat release/CAIHONG_PLATFORM_PACKAGE_ROCKNIX)" \
             MODULE_TREE="$PWD/modules-current" \
             RELEASE_DIR="$PWD/release" \
+            IMAGE_MIN_FREE_MIB=512 \
+            IMAGE_SLACK_PERCENT=5 \
             SPARSE_IMAGE=1 \
             scripts/package-rocknix-rootfs.sh \
             "release/caihong-rocknix-rootfs-$kernel_release.ext4.sparse.img"

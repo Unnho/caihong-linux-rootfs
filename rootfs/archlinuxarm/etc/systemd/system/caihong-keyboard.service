@@ -3,6 +3,10 @@ Description=Caihong automatic Bluetooth keyboard compatibility
 After=dbus.service bluetooth.service
 Requires=dbus.service
 ConditionPathExists=/proc/device-tree/compatible
+# The service talks to BlueZ through PyGObject.  Distributions that ship the
+# Python module without GObject typelibs (ROCKNIX) cannot run it; skip the unit
+# there instead of restarting it forever.
+ConditionPathExistsGlob=/usr/lib*/girepository-1.0/GLib-2.0.typelib
 
 [Service]
 Type=dbus

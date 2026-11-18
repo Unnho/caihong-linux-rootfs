@@ -182,6 +182,11 @@ grep -qx 'LABEL=linux / ext4 rw,noatime 0 1' "$target/etc/fstab" || {
 	echo "Debian root filesystem is not LABEL=linux" >&2
 	failed=1
 }
+grep -qx 'configfs /sys/kernel/config configfs defaults 0 0' \
+	"$target/etc/fstab" || {
+	echo "Debian does not mount configfs for the ADB gadget" >&2
+	failed=1
+}
 
 target_link=$(readlink "$target/etc/systemd/system/display-manager.service" 2>/dev/null || true)
 if [[ ! -L $target/etc/systemd/system/display-manager.service ||

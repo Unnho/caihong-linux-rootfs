@@ -59,7 +59,7 @@ esac
 (( image_slack_percent >= 5 )) || fail "IMAGE_SLACK_PERCENT must be at least 5"
 [[ $sparse_image == 0 || $sparse_image == 1 ]] || fail "SPARSE_IMAGE must be 0 or 1"
 
-required_tools=(blkid bsdtar chroot dpkg-deb du e2fsck find img2simg
+required_tools=(blkid bsdtar chroot debugfs dpkg-deb du e2fsck find img2simg
 	mkfs.ext4 mmdebstrap mount mountpoint python3 rsync sha256sum systemctl
 	truncate umount)
 for tool in "${required_tools[@]}"; do
@@ -276,6 +276,7 @@ ln -sfn /usr/lib/systemd/system/sddm.service \
 
 cat > "$rootfs/etc/fstab" <<'EOF'
 LABEL=linux / ext4 rw,noatime 0 1
+configfs /sys/kernel/config configfs defaults 0 0
 EOF
 {
 	printf 'device=caihong\n'
@@ -299,6 +300,34 @@ unmount_rootfs
 "$project_dir/scripts/verify-debian-rootfs.sh" "$rootfs"
 
 echo "creating $output"
+# Directory listings can silently omit entries on an unusual host filesystem.
+# Assert the payload the boot depends on in the staging tree and, below, in the
+# finished image instead of shipping something that cannot boot.
+verify_image_contents()
+{
+	local target=$1 relative count missing=0
+	for relative in \
+		"usr/lib/modules/$kernel_release/modules.dep" \
+		usr/lib/systemd/systemd \
+		etc/shadow etc/fstab usr/lib/os-release; do
+		[[ -e $target/$relative ]] && continue
+		echo "package-debian-rootfs: $target is missing /$relative" >&2
+		missing=1
+	done
+	count=$(find "$target/usr/lib/modules/$kernel_release" -name '*.ko' \
+		2>/dev/null | wc -l)
+	if (( count < 1000 )); then
+		echo "package-debian-rootfs: $target holds only $count kernel modules" >&2
+		missing=1
+	fi
+	(( missing == 0 )) || {
+		echo "package-debian-rootfs: refusing to build an incomplete image" >&2
+		ls -la "$target/usr/lib" >&2 || true
+		exit 1
+	}
+}
+
+verify_image_contents "$rootfs"
 used_bytes=$(du -sx --block-size=1 "$rootfs" | awk 'NR == 1 { print $1 }')
 percent_free=$((used_bytes * image_slack_percent / 100))
 minimum_free=$((image_min_free_mib * 1024 * 1024))
@@ -319,12 +348,16 @@ mkfs.ext4 -q -F -L linux -m 0 \
 mount -o loop "$raw_image" "$image_mount"
 image_mounted=1
 rsync -aHAX --numeric-ids "$rootfs/" "$image_mount/"
+verify_image_contents "$image_mount"
 sync -f "$image_mount"
 umount "$image_mount"
 image_mounted=0
 e2fsck -fy "$raw_image" >/dev/null
 [[ $(blkid -s LABEL -o value "$raw_image") == linux ]] || \
 	fail "generated ext4 image does not have LABEL=linux"
+debugfs -R "stat /usr/lib/modules/$kernel_release/modules.dep" "$raw_image" \
+	2>/dev/null | grep -q '^Inode:' || \
+	fail "generated image does not contain /usr/lib/modules/$kernel_release/modules.dep"
 
 rm -f -- "$temporary"
 if [[ $sparse_image == 1 ]]; then

@@ -23,8 +23,11 @@ rocknix_tar=${ROCKNIX_IMAGE_TAR:-"$project_dir/downloads/$ROCKNIX_IMAGE_NAME"}
 module_tree=${MODULE_TREE:-"$project_dir/modules-current"}
 release_dir=${RELEASE_DIR:-"$project_dir/release"}
 platform_package=${CAIHONG_PLATFORM_PACKAGE:-}
-image_min_free_mib=${IMAGE_MIN_FREE_MIB:-2048}
-image_slack_percent=${IMAGE_SLACK_PERCENT:-25}
+# The image is flashed straight into a fixed-size Android partition, so it must
+# stay smaller than the smallest supported one (a 7.5 GB decimal "linux"
+# partition).  First boot grows the filesystem to fill the partition anyway.
+image_min_free_mib=${IMAGE_MIN_FREE_MIB:-512}
+image_slack_percent=${IMAGE_SLACK_PERCENT:-5}
 sparse_image=${SPARSE_IMAGE:-1}
 
 fail()
@@ -43,8 +46,8 @@ esac
 (( image_slack_percent >= 5 )) || fail "IMAGE_SLACK_PERCENT must be at least 5"
 [[ $sparse_image == 0 || $sparse_image == 1 ]] || fail "SPARSE_IMAGE must be 0 or 1"
 
-required_tools=(blkid bsdtar chroot depmod du e2fsck find img2simg kmod
-	mkfs.ext4 mount mountpoint rsync sha256sum systemctl tar truncate
+required_tools=(blkid bsdtar chroot debugfs depmod du e2fsck find img2simg
+	kmod mkfs.ext4 mount mountpoint rsync sha256sum systemctl tar truncate
 	umount unsquashfs)
 for tool in "${required_tools[@]}"; do
 	command -v "$tool" >/dev/null 2>&1 || fail "missing host tool: $tool"
@@ -148,7 +151,11 @@ normalize_etc_links()
 		link_target=$(readlink -- "$link")
 		[[ $link_target == /* ]] || continue
 		parent=${link%/*}
-		relative=$(realpath -m --relative-to="$parent" "$rootfs$link_target")
+		# Strip symlinks: an absolute link such as /etc/firmware points at
+		# /usr/lib/firmware, which is itself an absolute link into the
+		# initramfs overlay.  Following that chain would resolve against the
+		# host root and bake host paths into the image.
+		relative=$(realpath -ms --relative-to="$parent" "$rootfs$link_target")
 		ln -sfn -- "$relative" "$link"
 	done < <(find "$rootfs/etc" -type l -print0)
 }
@@ -207,8 +214,14 @@ install -d -m 0755 "$rootfs/etc/ld.so.conf.d"
 printf '/usr/local/lib\n' > "$rootfs/etc/ld.so.conf.d/caihong-platform.conf"
 ldconfig -r "$rootfs"
 
-# ROCKNIX normally receives these files from its initramfs.
-printf 'LABEL=linux / ext4 rw,noatime 0 1\n' > "$rootfs/etc/fstab"
+# ROCKNIX normally receives its fstab from the initramfs and keeps /storage on
+# a separate partition.  A direct root has /storage inside the rootfs, so bind
+# it onto itself: rocknix-memory-manager (and the first-boot growth logic)
+# require /storage to be a mount point.
+cat > "$rootfs/etc/fstab" <<'EOF'
+LABEL=linux / ext4 rw,noatime 0 1
+/storage /storage none bind 0 0
+EOF
 printf 'caihong\n' > "$rootfs/etc/hostname"
 # /etc/resolv.conf is an absolute symlink into ROCKNIX's runtime directory.
 # Replace the link itself so the write cannot escape the staged rootfs.
@@ -222,6 +235,12 @@ rm -f -- "$rootfs/etc/machine-id"
 : > "$rootfs/etc/machine-id"
 install -d -m 0755 "$rootfs/storage/.cache" "$rootfs/storage/.config" \
 	"$rootfs/storage/roms" "$rootfs/storage/.update"
+# /etc/shadow is an absolute link to /storage/.cache/shadow, which usercache
+# only populates later during boot.  Seed it from the packaged copy so that
+# PAM consumers never see a dangling /etc/shadow during early startup.
+if [[ -f $rootfs/usr/cache/shadow ]]; then
+	cp -a "$rootfs/usr/cache/shadow" "$rootfs/storage/.cache/shadow"
+fi
 
 for line in 'ID=rocknix' 'ID_LIKE=libreelec' 'VARIANT="Caihong"' \
 	'VARIANT_ID=caihong'; do
@@ -269,6 +288,39 @@ normalize_etc_links
 
 "$project_dir/scripts/verify-rocknix-rootfs.sh" "$rootfs"
 
+# A directory listing can silently omit entries on a damaged or unusual host
+# filesystem, which would ship an image without /usr/lib/modules and boot into
+# a system with no Wi-Fi, Bluetooth or audio.  Check the payload explicitly in
+# both the staging tree and, below, the final image.
+verify_image_contents()
+{
+	local target=$1 relative count missing=0
+	for relative in \
+		"usr/lib/modules/$kernel_release/modules.dep" \
+		"usr/lib/modules/$kernel_release/modules.builtin" \
+		usr/lib/firmware/ath12k/WCN7850/hw2.0/caihong/amss.bin \
+		usr/lib/firmware/qca/hmtbtfw20.tlv \
+		etc/shadow etc/fstab etc/hostname \
+		usr/lib/systemd/system/rocknix.target; do
+		[[ -e $target/$relative ]] && continue
+		echo "package-rocknix-rootfs: $target is missing /$relative" >&2
+		missing=1
+	done
+	count=$(find "$target/usr/lib/modules/$kernel_release" -name '*.ko' \
+		2>/dev/null | wc -l)
+	if (( count < 1000 )); then
+		echo "package-rocknix-rootfs: $target holds only $count kernel modules" >&2
+		missing=1
+	fi
+	(( missing == 0 )) || {
+		echo "package-rocknix-rootfs: refusing to build an incomplete image" >&2
+		ls -la "$target/usr/lib" >&2 || true
+		exit 1
+	}
+}
+
+verify_image_contents "$rootfs"
+
 echo "creating $output"
 used_bytes=$(du -sx --block-size=1 "$rootfs" | awk 'NR == 1 { print $1 }')
 percent_free=$((used_bytes * image_slack_percent / 100))
@@ -289,12 +341,18 @@ mkfs.ext4 -q -F -L linux -m 0 \
 mount -o loop "$raw_image" "$image_mount"
 image_mounted=1
 rsync -aHAX --numeric-ids "$rootfs/" "$image_mount/"
+verify_image_contents "$image_mount"
 sync -f "$image_mount"
 umount "$image_mount"
 image_mounted=0
 e2fsck -fy "$raw_image" >/dev/null
 [[ $(blkid -s LABEL -o value "$raw_image") == linux ]] || \
 	fail "generated ext4 image does not have LABEL=linux"
+# Read the finished filesystem back with a second, independent tool so a lossy
+# directory listing during the copy cannot go unnoticed.
+debugfs -R "stat /usr/lib/modules/$kernel_release/modules.dep" "$raw_image" \
+	2>/dev/null | grep -q '^Inode:' || \
+	fail "generated image does not contain /usr/lib/modules/$kernel_release/modules.dep"
 
 rm -f -- "$temporary"
 if [[ $sparse_image == 1 ]]; then

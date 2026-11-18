@@ -169,6 +169,28 @@ grep -qx 'LABEL=linux / ext4 rw,noatime 0 1' "$target/etc/fstab" || {
 	echo "ROCKNIX root filesystem is not LABEL=linux" >&2
 	failed=1
 }
+grep -qx '/storage /storage none bind 0 0' "$target/etc/fstab" || {
+	echo "ROCKNIX /storage is not a mount point" >&2
+	failed=1
+}
+[[ -f $target/storage/.cache/shadow ]] || {
+	echo "ROCKNIX /storage/.cache/shadow was not seeded" >&2
+	failed=1
+}
+[[ -e $target/etc/firmware/ath12k/WCN7850/hw2.0/amss.bin ]] || {
+	echo "ROCKNIX /etc/firmware does not reach the firmware tree" >&2
+	failed=1
+}
+while IFS= read -r -d '' link; do
+	resolved=$(readlink -m -- "$link")
+	case $resolved in
+		"$target"/*) ;;
+		*)
+			echo "ROCKNIX /etc symlink escapes the image: ${link#"$target"}" >&2
+			failed=1
+			;;
+	esac
+done < <(find "$target/etc" -type l -print0)
 for unit in caihong-adbd.service caihong-grow-rootfs.service \
 	caihong-keyboard.service caihong-ssc.service; do
 	link="$target/etc/systemd/system/multi-user.target.wants/$unit"
