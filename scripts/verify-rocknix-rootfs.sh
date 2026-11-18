@@ -57,6 +57,7 @@ required_paths=(
 	etc/systemd/system/caihong-grow-rootfs.service
 	etc/systemd/system/caihong-keyboard.service
 	usr/lib/systemd/system/caihong-ssc.service
+	usr/lib/systemd/system/iio-sensor-proxy.service
 	usr/bin/plasma-camera
 	usr/bin/cam
 	usr/bin/qcam
@@ -81,6 +82,12 @@ required_paths=(
 	usr/local/libexec/caihong-ssc/iio-sensor-proxy
 	usr/local/lib/caihong-ssc/libhexagonrpc.so.0.5
 	usr/local/lib/caihong-ssc/libssc.so.2
+	usr/local/lib/caihong-ssc/libgudev-1.0.so.0
+	usr/local/lib/caihong-ssc/libmbim-glib.so.4
+	usr/local/lib/caihong-ssc/libprotobuf-c.so.1
+	usr/local/lib/caihong-ssc/libqmi-glib.so.5
+	usr/local/lib/caihong-ssc/libqrtr-glib.so.0
+	usr/local/lib/caihong-ssc/runtime
 	storage
 	storage/.config
 	storage/roms
@@ -88,6 +95,15 @@ required_paths=(
 for path in "${required_paths[@]}"; do
 	require_path "$path"
 done
+
+# The SSC payload resolves its helper libraries through SONAME links, so a
+# dangling link would be as fatal as a missing file.
+while IFS= read -r link; do
+	[[ -e $link ]] || {
+		echo "dangling SSC library link: ${link#"$target"}" >&2
+		failed=1
+	}
+done < <(find "$target/usr/local/lib/caihong-ssc" -maxdepth 1 -type l)
 
 # ROCKNIX normally resolves firmware and modules through an initramfs overlay.
 # A direct root must carry both in the filesystem itself.
@@ -192,7 +208,7 @@ while IFS= read -r -d '' link; do
 	esac
 done < <(find "$target/etc" -type l -print0)
 for unit in caihong-adbd.service caihong-grow-rootfs.service \
-	caihong-keyboard.service caihong-ssc.service; do
+	caihong-keyboard.service caihong-ssc.service iio-sensor-proxy.service; do
 	link="$target/etc/systemd/system/multi-user.target.wants/$unit"
 	[[ -L $link ]] || {
 		echo "Caihong service is not enabled in ROCKNIX: $unit" >&2
