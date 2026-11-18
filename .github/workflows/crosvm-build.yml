@@ -26,7 +26,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential clang curl dtc git libclang-dev libcap-dev \
+            build-essential clang curl device-tree-compiler git libclang-dev libcap-dev \
             libssl-dev libslirp-dev pkg-config protobuf-compiler python3
 
       - name: Install Rust
