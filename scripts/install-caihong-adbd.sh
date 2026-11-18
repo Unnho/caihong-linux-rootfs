@@ -17,6 +17,8 @@ mkdir -p "$cache"
 android_base=https://deb.debian.org/debian/pool/main/a/android-platform-tools
 boringssl_base=https://deb.debian.org/debian/pool/main/a/android-platform-external-boringssl
 protobuf_base=https://deb.debian.org/debian/pool/main/p/protobuf
+brotli_base=https://deb.debian.org/debian/pool/main/b/brotli
+lz4_base=https://deb.debian.org/debian/pool/main/l/lz4
 
 packages='
 adbd_34.0.5-13_arm64.deb 502357a4ba2beea0412dee705219dca855c705cbde4307a0d03efdeb2a2fbbca ANDROID
@@ -25,6 +27,8 @@ android-libcutils_34.0.5-13_arm64.deb bc080151a31ae569634e64101fe8769c4e142a12db
 android-liblog_34.0.5-13_arm64.deb 891458f051560a51d2e3b0458b8437529d05b4f216ed4350b821dbbfcb86e4b1 ANDROID
 android-libboringssl_14.0.0+r45-3+b2_arm64.deb d91e99628c49781f53277a5ba06ae3e6f7b1d5b1bb46661762bb7fd3ee7edf64 BORINGSSL
 libprotobuf32t64_3.21.12-11+deb13u1_arm64.deb 51bf38fcca667be0deef732a903563ee6ffa9bfc04433310c2c49e4c92d06b09 PROTOBUF
+libbrotli1_1.1.0-2+b7_arm64.deb 10270398c4842e71c72b4081fa1761728b3225d6c8dce7c58d5baafe58a5e18f BROTLI
+liblz4-1_1.10.0-4_arm64.deb f86fa7f8112d56b74f99c4a8baade57a9962d187d7c8e319428e171b2a34d223 LZ4
 '
 
 work_dir=$(mktemp -d "${TMPDIR:-/tmp}/caihong-adbd.XXXXXX")
@@ -42,6 +46,8 @@ fetch()
 			ANDROID) base=$android_base ;;
 			BORINGSSL) base=$boringssl_base ;;
 			PROTOBUF) base=$protobuf_base ;;
+			BROTLI) base=$brotli_base ;;
+			LZ4) base=$lz4_base ;;
 			*) echo "unknown package source: $source" >&2; exit 1 ;;
 		esac
 		curl -fsSL --retry 4 --retry-delay 2 -o "$path" "$base/$name"
@@ -83,7 +89,11 @@ for library in \
 	android-liblog_34.0.5-13_arm64/usr/lib/aarch64-linux-gnu/android/liblog.so.0 \
 	android-libboringssl_14.0.0+r45-3+b2_arm64/usr/lib/aarch64-linux-gnu/android/libcrypto.so.0 \
 	android-libboringssl_14.0.0+r45-3+b2_arm64/usr/lib/aarch64-linux-gnu/android/libssl.so.0 \
-	libprotobuf32t64_3.21.12-11+deb13u1_arm64/usr/lib/aarch64-linux-gnu/libprotobuf.so.32.0.12; do
+	libprotobuf32t64_3.21.12-11+deb13u1_arm64/usr/lib/aarch64-linux-gnu/libprotobuf.so.32.0.12 \
+	libbrotli1_1.1.0-2+b7_arm64/usr/lib/aarch64-linux-gnu/libbrotlicommon.so.1 \
+	libbrotli1_1.1.0-2+b7_arm64/usr/lib/aarch64-linux-gnu/libbrotlidec.so.1 \
+	libbrotli1_1.1.0-2+b7_arm64/usr/lib/aarch64-linux-gnu/libbrotlienc.so.1 \
+	liblz4-1_1.10.0-4_arm64/usr/lib/aarch64-linux-gnu/liblz4.so.1; do
 	source_file=$work_dir/$library
 	[ -f "$source_file" ] || {
 		echo "Debian adbd library is missing: ${library##*/}" >&2
@@ -95,7 +105,7 @@ ln -sfn libprotobuf.so.32.0.12 \
 	"$target/usr/lib/caihong-adbd/libprotobuf.so.32"
 
 for package in adbd android-libbase android-libcutils android-liblog \
-	android-libboringssl libprotobuf32t64; do
+	android-libboringssl libprotobuf32t64 libbrotli1 liblz4-1; do
 	dir=$(find "$work_dir" -maxdepth 1 -type d -name "$package*" -print -quit)
 	[ -n "$dir" ] || continue
 	copyright=$dir/usr/share/doc/$package/copyright
@@ -114,6 +124,8 @@ android-libcutils=34.0.5-13
 android-liblog=34.0.5-13
 android-libboringssl=14.0.0+r45-3+b2
 libprotobuf32t64=3.21.12-11+deb13u1
+libbrotli1=1.1.0-2+b7
+liblz4-1=1.10.0-4
 source=https://deb.debian.org/debian
 EOF
 chmod 0644 "$target/usr/lib/caihong-adbd/runtime"
