@@ -306,6 +306,12 @@ fi
 
 normalize_network_profiles "$wifi_interface"
 
-apply_bluetooth_address "$bluetooth_mac"
+if command -v btmgmt >/dev/null 2>&1; then
+	apply_bluetooth_address "$bluetooth_mac"
+else
+	# Buildroot images such as ROCKNIX ship bluez without the btmgmt tool, so
+	# the controller keeps whatever address it already reports.
+	echo "btmgmt is unavailable; leaving the Bluetooth address unchanged" >&2
+fi
 
 echo "WLAN $wifi_interface: $wlan_mac"
