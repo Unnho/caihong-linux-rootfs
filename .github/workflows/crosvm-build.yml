@@ -44,6 +44,7 @@ jobs:
           esac
           git clone --depth 1 --branch "$CROSVM_REF" \
             https://github.com/google/crosvm.git crosvm
+          git -C crosvm submodule update --init --depth 1 third_party/minijail
 
       - name: Build crosvm (gunyah, net, slirp, qcow)
         run: |
