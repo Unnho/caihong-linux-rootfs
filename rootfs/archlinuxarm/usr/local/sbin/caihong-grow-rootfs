@@ -1,0 +1,30 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (c) 2026 Ahaan <ahaan.c@icloud.com>
+#
+# Grow the mounted Caihong root filesystem to fill its partition.
+set -eu
+CDPATH=
+
+# Resolve the device the running root filesystem lives on.  A by-label lookup
+# is ambiguous as soon as the same image has also been written to another
+# partition, and resizing the wrong filesystem would be destructive.
+device=
+while read -r source target rest; do
+	if [ "$target" = / ]; then
+		device=$source
+		break
+	fi
+done < /proc/mounts
+if [ -z "$device" ]; then
+	echo "caihong-grow-rootfs: cannot determine the root device" >&2
+	exit 1
+fi
+
+for candidate in /usr/sbin/resize2fs /usr/bin/resize2fs /sbin/resize2fs; do
+	if [ -x "$candidate" ]; then
+		exec "$candidate" "$device"
+	fi
+done
+echo "caihong-grow-rootfs: resize2fs is not installed" >&2
+exit 1

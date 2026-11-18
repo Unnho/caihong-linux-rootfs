@@ -130,11 +130,6 @@ if [ "$account" != alarm ]; then
 		fi
 	fi
 fi
-if [ "$distribution" != archlinuxarm ]; then
-	# Debian and Buildroot keep filesystem utilities in /usr/sbin.
-	sed -i 's#/usr/bin/resize2fs#/usr/sbin/resize2fs#g' \
-		"$stage/etc/systemd/system/caihong-grow-rootfs.service"
-fi
 
 if [ "$distribution" = archlinuxarm ] || [ "$distribution" = armada ] ||
 	[ "$distribution" = debian ] || [ "$distribution" = rocknix ]; then
