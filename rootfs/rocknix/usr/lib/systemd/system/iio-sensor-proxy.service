@@ -1,0 +1,17 @@
+[Unit]
+Description=IIO Sensor Proxy service
+Wants=caihong-ssc.service
+After=caihong-ssc.service
+ConditionPathExists=/dev/fastrpc-adsp
+
+[Service]
+Type=dbus
+BusName=net.hadess.SensorProxy
+ExecStart=/usr/local/libexec/caihong-ssc/iio-sensor-proxy
+Environment=LD_LIBRARY_PATH=/usr/local/lib/caihong-ssc
+RestrictAddressFamilies=AF_UNIX AF_LOCAL AF_NETLINK AF_QIPCRTR
+Restart=on-failure
+RestartSec=3s
+
+[Install]
+WantedBy=multi-user.target

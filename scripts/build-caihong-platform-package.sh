@@ -175,6 +175,12 @@ install -d -m 0755 "$stage/usr/share/caihong-ssc"
 mv -- "$stage/var/lib/caihong-ssc/root" "$stage/usr/share/caihong-ssc/root"
 CAIHONG_BUILD_ROOT="$build_root" \
 	"$project_dir/scripts/install-caihong-ssc-stage.sh" "$stage"
+if [ "$distribution" = rocknix ]; then
+	# ROCKNIX ships neither libqmi, libqrtr, libmbim, libgudev nor
+	# protobuf-c, so the SSC payload cannot start there without them.
+	CAIHONG_SSC_COMPAT_CACHE="$project_dir/downloads/caihong-ssc-compat" \
+		"$project_dir/scripts/install-caihong-ssc-compat.sh" "$stage" >/dev/null
+fi
 
 "$project_dir/scripts/install-caihong-npu.sh" \
 	"$project_dir/firmware-assets/caihong-npu" "$stage" "$libdir"

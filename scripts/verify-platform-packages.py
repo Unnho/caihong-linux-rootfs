@@ -182,6 +182,13 @@ def verify(release, distribution, libdir, suffix):
     for name in ('fastrpc_shell_unsigned_3', 'libcalculator_skel.so',
                  'libQnnHtpV75Skel.so', 'libc++.so.1', 'libc++abi.so.1'):
         required.update((f'usr/share/caihong-npu/dsp/v75/{name}', f'usr/lib/dsp/{name}'))
+    if distribution == 'rocknix':
+        # Buildroot does not provide the glib helper libraries the SSC
+        # payload links against, so the package carries Debian's builds.
+        for name in ('libgudev-1.0.so.0', 'libmbim-glib.so.4',
+                     'libqmi-glib.so.5', 'libqrtr-glib.so.0',
+                     'libprotobuf-c.so.1', 'runtime'):
+            required.add(f'usr/local/lib/caihong-ssc/{name}')
     for name in ('libQnnHtp.so', 'libQnnHtpPrepare.so', 'libQnnHtpV75Stub.so'):
         required.add(f'usr/{libdir}/{name}')
     required.update(source_paths(PROJECT, distribution))
