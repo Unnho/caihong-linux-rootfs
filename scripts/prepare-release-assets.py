@@ -276,6 +276,12 @@ The two Android boot image v2 files contain only Linux `{kernel_release}` and th
 Caihong DTB; they do not contain a ramdisk. Choose the `linux` image for dual boot
 or the `userdata` image for a single-system installation.
 
+Each boot image hard-codes the partition it mounts as the root filesystem, so pair
+them exactly: a rootfs written to `linux` must boot
+`caihong-boot-linux-{kernel_release}.img`, and a rootfs written to `userdata` must
+boot `caihong-boot-userdata-{kernel_release}.img`. Booting the wrong pair leaves
+the kernel waiting for a `PARTLABEL` that is not there.
+
 ## Required DTBO step
 
 Erase only the DTBO partition for the slot selected for Linux before flashing

@@ -54,6 +54,7 @@ grep -Eq '^debian_suite=[a-z]+$' "$target/etc/caihong-rootfs-build-info" 2>/dev/
 }
 
 required_paths=(
+	sbin/init
 	etc/caihong-rootfs-build-info
 	etc/caihong-desktop-account
 	etc/fstab
