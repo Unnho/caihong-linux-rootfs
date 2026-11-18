@@ -1,0 +1,151 @@
+name: Build Caihong kernel package
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_ref:
+        description: Kernel branch, tag or commit to build
+        required: true
+        default: caihong-v7.3
+      create_release:
+        description: Attach the package to a GitHub release
+        required: true
+        type: boolean
+        default: false
+      release_tag:
+        description: Release tag (empty uses kernel-<release>)
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: caihong-kernel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-kernel-package:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    env:
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      KERNEL_REF: ${{ inputs.kernel_ref }}
+    outputs:
+      kernel_release: ${{ steps.build.outputs.kernel_release }}
+      kernel_commit: ${{ steps.build.outputs.kernel_commit }}
+      package: ${{ steps.build.outputs.package }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential ccache curl dwarves flex git kmod \
+            libarchive-tools libelf-dev libssl-dev python3 rsync zstd
+
+      - name: Resolve kernel dependencies
+        run: |
+          case "$KERNEL_REF" in
+            ''|*[!A-Za-z0-9._/-]*)
+              echo "invalid kernel ref: $KERNEL_REF" >&2
+              exit 2
+              ;;
+          esac
+          if [ "$KERNEL_REF" != "caihong-v7.3" ]; then
+            sed -i "s|^LINUX_REF=.*|LINUX_REF=$KERNEL_REF|" config/dependencies.env
+          fi
+          DEPENDENCY_SCOPE=kernel scripts/checkout-dependencies.sh
+
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-kernel-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Configure compiler cache
+        run: |
+          ccache --max-size=2G
+          ccache --set-config=compression=true
+          ccache --set-config=compression_level=6
+          ccache --zero-stats
+
+      - name: Build kernel and package
+        id: build
+        run: |
+          jobs=$(nproc)
+          JOBS=$jobs ZSTD_THREADS=$jobs FORCE=1 \
+            KERNEL_CC="ccache gcc" KERNEL_HOSTCC="ccache gcc" \
+            scripts/build-kernel-release.sh
+
+          kernel_release=$(cat release/KERNEL_RELEASE)
+          package=$(cat release/LINUX_CAIHONG_PACKAGE)
+          kernel_commit=$(git -C linux rev-parse HEAD)
+
+          printf 'kernel_release=%s\n' "$kernel_release" >> "$GITHUB_OUTPUT"
+          printf 'kernel_commit=%s\n' "$kernel_commit" >> "$GITHUB_OUTPUT"
+          printf 'package=%s\n' "$package" >> "$GITHUB_OUTPUT"
+
+          {
+            echo '### Caihong kernel package'
+            echo
+            echo "- kernel release: \`$kernel_release\`"
+            echo "- kernel commit: \`$kernel_commit\`"
+            echo "- package: \`$package\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show compiler cache statistics
+        if: always()
+        run: ccache --show-stats
+
+      - name: Save compiler cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ccache-${{ runner.os }}-${{ runner.arch }}-kernel-${{ github.run_id }}
+
+      - name: Upload kernel package
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-caihong-${{ steps.build.outputs.kernel_release }}
+          path: |
+            release/linux-caihong-*-aarch64.pkg.tar.zst
+            release/caihong-boot-*.img
+            release/Image-*
+            release/sm8650-oneplus-caihong-*.dtb
+            release/config-*
+            release/SHA256SUMS.boot
+            release/KERNEL_RELEASE
+            build/dependencies.resolved.env
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Publish GitHub release
+        if: inputs.create_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.release_tag }}"
+          if [ -z "$tag" ]; then
+            tag="kernel-${{ steps.build.outputs.kernel_release }}"
+          fi
+          files=(
+            "release/${{ steps.build.outputs.package }}"
+            release/SHA256SUMS.boot
+            release/KERNEL_RELEASE
+            build/dependencies.resolved.env
+          )
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${files[@]}" --clobber
+          else
+            gh release create "$tag" "${files[@]}" \
+              --title "Caihong kernel ${{ steps.build.outputs.kernel_release }}" \
+              --notes "Kernel \`${{ steps.build.outputs.kernel_release }}\` from \`${{ steps.build.outputs.kernel_commit }}\`."
+          fi
