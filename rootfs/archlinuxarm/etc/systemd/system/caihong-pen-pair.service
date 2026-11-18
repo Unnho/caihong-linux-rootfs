@@ -3,6 +3,8 @@ Description=Pair the recently docked Caihong pen
 After=bluetooth.service caihong-pen-charge.service
 ConditionPathExists=/etc/caihong-pen.json
 ConditionPathExists=/run/caihong-pen-charge/state.json
+# Talks to BlueZ through PyGObject; skip where gi has no typelibs (ROCKNIX).
+ExecCondition=/usr/bin/python3 -c "from gi.repository import Gio"
 
 [Service]
 Type=oneshot

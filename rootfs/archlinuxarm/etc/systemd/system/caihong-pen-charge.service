@@ -3,6 +3,8 @@ Description=Bounded automatic Caihong pen charging attempt
 After=bluetooth.service
 ConditionPathExists=/etc/caihong-pen.json
 ConditionPathExistsGlob=/lib/modules/%v/kernel/drivers/power/supply/caihong_pen_power.ko*
+# Talks to BlueZ through PyGObject; skip where gi has no typelibs (ROCKNIX).
+ExecCondition=/usr/bin/python3 -c "from gi.repository import Gio"
 
 [Service]
 Type=oneshot
