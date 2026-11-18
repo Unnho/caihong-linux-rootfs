@@ -58,6 +58,7 @@ jobs:
             scripts/install-caihong-utilities-stage.sh \
             scripts/install-caihong-ppd-stage.sh \
             scripts/install-caihong-ssc-stage.sh \
+            scripts/install-caihong-ssc-compat.sh \
             packaging/libssc/run-regression.sh \
             scripts/package-archlinuxarm-rootfs.sh \
             scripts/package-armada-rootfs.sh \
