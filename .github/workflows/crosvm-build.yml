@@ -1,0 +1,70 @@
+name: Build crosvm with Gunyah support
+
+on:
+  workflow_dispatch:
+    inputs:
+      crosvm_ref:
+        description: crosvm branch, tag or commit
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: crosvm-gunyah-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential clang curl dtc git libclang-dev libcap-dev \
+            libssl-dev libslirp-dev pkg-config protobuf-compiler python3
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Check out crosvm
+        env:
+          CROSVM_REF: ${{ inputs.crosvm_ref }}
+        run: |
+          case "$CROSVM_REF" in
+            ''|*[!A-Za-z0-9._/-]*)
+              echo "invalid crosvm ref: $CROSVM_REF" >&2
+              exit 2
+              ;;
+          esac
+          git clone --depth 1 --branch "$CROSVM_REF" \
+            https://github.com/google/crosvm.git crosvm
+
+      - name: Build crosvm (gunyah, net, slirp, qcow)
+        run: |
+          cd crosvm
+          cargo build --release --no-default-features \
+            --features "gunyah,net,slirp,qcow"
+          strip -s target/release/crosvm
+          file target/release/crosvm
+          ldd target/release/crosvm || true
+
+      - name: Package
+        run: |
+          cd crosvm
+          git rev-parse HEAD > target/release/CROSVM_COMMIT
+          tar -C target/release -czf ../crosvm-gunyah-aarch64.tar.gz \
+            crosvm CROSVM_COMMIT
+
+      - name: Upload crosvm
+        uses: actions/upload-artifact@v4
+        with:
+          name: crosvm-gunyah-aarch64
+          path: crosvm-gunyah-aarch64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
