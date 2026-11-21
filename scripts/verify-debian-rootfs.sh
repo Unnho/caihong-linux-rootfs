@@ -108,6 +108,7 @@ required_paths=(
 	usr/lib/systemd/system/caihong-zram.service
 	usr/local/sbin/caihong-zram
 	etc/NetworkManager/conf.d/40-caihong-connectivity.conf
+	etc/UPower/UPower.conf.d/70-caihong-low-battery.conf
 )
 for path in "${required_paths[@]}"; do
 	require_path "$path"
