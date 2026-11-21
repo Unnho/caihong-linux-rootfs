@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (c) 2026 Ahaan <ahaan.c@icloud.com>
+#
+# Storage tuning adapted from Armada OS
+# (system_files/usr/lib/udev/rules.d/60-armada-block-scheduler.rules).  The
+# Caihong tablet exposes its UFS 4.0 LUNs as sd* block devices rather than the
+# mmcblk* names Armada's handhelds use, and UFS is served best by the blk-mq
+# none scheduler with a wider read-ahead window.
+ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="none"
+ACTION=="add|change", KERNEL=="sd[a-z]", ATTR{queue/rotational}=="0", ATTR{queue/read_ahead_kb}="2048"

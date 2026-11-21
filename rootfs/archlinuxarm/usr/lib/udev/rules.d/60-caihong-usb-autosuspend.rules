@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (c) 2026 Ahaan <ahaan.c@icloud.com>
+#
+# Imported from Armada OS
+# (system_files/usr/lib/udev/rules.d/60-armada-usb-autosuspend.rules).
+# An active DWC3 holds a 1 GB/s USB-to-DDR interconnect vote in every RPMh
+# bucket including the sleep set, which blocks the DDR low-power tiers, so let
+# the controller runtime-suspend when the port is idle.
+ACTION=="add|bind", SUBSYSTEM=="platform", KERNEL=="*.usb", DRIVERS=="dwc3-qcom", ATTR{power/control}="auto"

@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (c) 2026 Ahaan <ahaan.c@icloud.com>
+#
+# Bring up a zstd zram swap device.  Enabled on the distributions that do not
+# manage zram themselves; ROCKNIX already does this through its memory manager.
+[Unit]
+Description=Configure a zstd zram swap device for the Caihong tablet
+Documentation=https://github.com/Osilvfe/caihong-linux-rootfs
+After=systemd-modules-load.service
+Before=swap.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/caihong-zram
+
+[Install]
+WantedBy=swap.target

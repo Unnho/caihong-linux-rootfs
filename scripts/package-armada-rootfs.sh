@@ -201,8 +201,9 @@ for unit in NetworkManager.service bluetooth.service power-profiles-daemon.servi
 	caihong-clean-pogo-kde.service caihong-keyboard.service caihong-bluetooth-autostart.service \
 	caihong-bluetooth-late-autostart.timer \
 	caihong-hardware-mac.service caihong-mark-boot-successful.service \
-	caihong-ssc.service caihong-pen-autoconnect.timer \
-	caihong-pen-charge.timer caihong-pen-pair.timer; do
+	caihong-ssc.service caihong-zram.service \
+	caihong-pen-autoconnect.timer caihong-pen-charge.timer \
+	caihong-pen-pair.timer; do
 	enable_unit "$unit"
 done
 if systemctl --root="$rootfs" list-unit-files sshd.service --no-legend 2>/dev/null |

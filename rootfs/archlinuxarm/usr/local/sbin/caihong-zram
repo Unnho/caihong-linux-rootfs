@@ -1,0 +1,45 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (c) 2026 Ahaan <ahaan.c@icloud.com>
+#
+# Bring up a zstd zram swap device.  The compression policy mirrors ROCKNIX's
+# SM8650 defaults (ZRAM_COMPRESSION_ALGO=zstd, ZRAM_SWAP_SIZE=Auto) and the
+# swappiness that Armada OS sets for zram.  If the distribution already
+# configured zram (ROCKNIX memory-manager, systemd zram-generator) this exits
+# without touching it.
+set -eu
+CDPATH=
+
+sysfs=/sys/block/zram0
+device=/dev/zram0
+
+# Someone else may have claimed zram0 already.
+if [ -r "$sysfs/disksize" ] && [ "$(cat "$sysfs/disksize")" -gt 0 ]; then
+	exit 0
+fi
+
+modprobe zram 2>/dev/null || true
+[ -e "$sysfs" ] || exit 0
+
+if [ -r "$sysfs/comp_algorithm" ]; then
+	algo=zstd
+	if ! grep -qw "$algo" "$sysfs/comp_algorithm"; then
+		algo=$(tr ' ' '\n' < "$sysfs/comp_algorithm" | tr -d '[]' | head -n 1)
+	fi
+	if [ -n "$algo" ]; then
+		echo "$algo" > "$sysfs/comp_algorithm"
+	fi
+fi
+
+# Half of RAM, clamped to a sane window.  zram only consumes memory for the
+# pages it actually stores, so this is a ceiling rather than a reservation.
+mem_kb=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo)
+size=$(( mem_kb * 1024 / 2 ))
+max=$(( 8 * 1024 * 1024 * 1024 ))
+min=$(( 512 * 1024 * 1024 ))
+[ "$size" -gt "$max" ] && size=$max
+[ "$size" -lt "$min" ] && size=$min
+
+echo "$size" > "$sysfs/disksize"
+mkswap "$device" >/dev/null
+swapon -p 100 "$device"

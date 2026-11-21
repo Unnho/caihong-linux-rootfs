@@ -264,6 +264,7 @@ for unit in NetworkManager.service bluetooth.service \
 	caihong-keyboard.service caihong-bluetooth-autostart.service \
 	caihong-hardware-mac.service \
 	caihong-mark-boot-successful.service caihong-ssc.service \
+	caihong-zram.service \
 	caihong-pen-autoconnect.timer caihong-pen-charge.timer \
 	caihong-pen-pair.timer; do
 	enable_unit "$unit"

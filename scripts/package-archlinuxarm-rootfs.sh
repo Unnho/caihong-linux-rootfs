@@ -570,6 +570,7 @@ systemctl --root="$rootfs" enable caihong-clean-pogo-kde.service
 systemctl --root="$rootfs" enable caihong-keyboard.service
 systemctl --root="$rootfs" enable caihong-bluetooth-autostart.service
 systemctl --root="$rootfs" enable caihong-adbd.service
+systemctl --root="$rootfs" enable caihong-zram.service
 "$chroot_tool" "$rootfs" "${chroot_env[@]}" \
 	usermod -aG audio,input,video,wheel alarm
 chmod 0440 "$rootfs/etc/sudoers.d/10-alarm"

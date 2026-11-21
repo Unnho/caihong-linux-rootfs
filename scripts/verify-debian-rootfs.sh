@@ -102,6 +102,12 @@ required_paths=(
 	usr/local/libexec/caihong-ssc/iio-sensor-proxy
 	usr/local/lib/caihong-ssc/libhexagonrpc.so.0.5
 	usr/local/lib/caihong-ssc/libssc.so.2
+	usr/lib/sysctl.d/60-caihong-gaming.conf
+	usr/lib/udev/rules.d/60-caihong-block-scheduler.rules
+	usr/lib/udev/rules.d/60-caihong-usb-autosuspend.rules
+	usr/lib/systemd/system/caihong-zram.service
+	usr/local/sbin/caihong-zram
+	etc/NetworkManager/conf.d/40-caihong-connectivity.conf
 )
 for path in "${required_paths[@]}"; do
 	require_path "$path"
