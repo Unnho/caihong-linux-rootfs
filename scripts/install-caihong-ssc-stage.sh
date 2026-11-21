@@ -6,7 +6,10 @@ project_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 stage=${1:-}
 build_root=${CAIHONG_BUILD_ROOT:-}
 source_tree=$project_dir/external/libssc
-patch_file=$project_dir/packaging/libssc/0001-per-operation-report-handler.patch
+patch_dir=$project_dir/packaging/libssc
+shopt -s nullglob
+patch_files=("$patch_dir"/[0-9][0-9][0-9][0-9]-*.patch)
+shopt -u nullglob
 
 if [[ -z $stage || ! -d $stage || -z $build_root || ! -d $build_root ]]; then
 	echo "usage: CAIHONG_BUILD_ROOT=ROOT $0 STAGE_DIR" >&2
@@ -20,7 +23,7 @@ esac
 case $build_root in
 	/|/boot|/home|/usr|/var) echo "refusing unsafe build root: $build_root" >&2; exit 1 ;;
 esac
-[[ -f $source_tree/src/libssc-sensor.c && -f $patch_file ]] || {
+[[ -f $source_tree/src/libssc-sensor.c && ${#patch_files[@]} -gt 0 ]] || {
 	echo "missing libssc source or patch; run scripts/checkout-dependencies.sh" >&2
 	exit 1
 }
@@ -44,7 +47,9 @@ inside_build=/var/tmp/caihong-libssc-build
 rm -rf -- "$build_root$inside_source" "$build_root$inside_build"
 install -d -m 0755 "$build_root$inside_source" "$build_root$inside_build"
 rsync -a --exclude=.git "$source_tree/" "$build_root$inside_source/"
-patch -d "$build_root$inside_source" -Np1 --batch -i "$patch_file"
+for patch_file in "${patch_files[@]}"; do
+	patch -d "$build_root$inside_source" -Np1 --batch -i "$patch_file"
+done
 install -m 0644 "$project_dir/packaging/libssc/test-concurrent-open.c" \
 	"$build_root$inside_source/test-concurrent-open.c"
 install -m 0644 "$project_dir/packaging/libssc/test-light-zero.c" \
@@ -65,7 +70,8 @@ install -D -m 0644 "$source_tree/LICENSE" \
 install -d -m 0755 "$stage/usr/share/caihong"
 {
 	printf 'libssc_version=0.4.4\nsource_commit=%s\n' "$source_commit"
-	printf 'patch_sha256=%s\n' "$(sha256sum "$patch_file" | cut -d ' ' -f 1)"
+	printf 'patch_sha256=%s\n' "$(cat "${patch_files[@]}" | sha256sum | cut -d ' ' -f 1)"
+	printf 'patch_count=%s\n' "${#patch_files[@]}"
 	printf 'concurrent_open=per-operation-handler\n'
 } > "$stage/usr/share/caihong/ssc-build-info"
 rm -rf -- "$build_root$inside_source" "$build_root$inside_build"
