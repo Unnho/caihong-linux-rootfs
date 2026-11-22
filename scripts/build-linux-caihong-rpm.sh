@@ -71,7 +71,7 @@ Version: $version
 Release: 1
 Summary: Mainline Linux kernel and modules for OnePlus Pad Pro (caihong)
 License: GPL-2.0-only
-URL: https://github.com/Osilvfe/linux
+URL: https://github.com/Unnho/linux
 BuildArch: aarch64
 Requires: bash
 Requires: coreutils

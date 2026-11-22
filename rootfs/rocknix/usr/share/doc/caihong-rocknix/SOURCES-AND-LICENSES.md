@@ -16,6 +16,8 @@ ext4 image that boots from the same Android boot images as the Arch Linux ARM
 and Armada images.
 
 The Caihong kernel source is maintained at
-[Osilvfe/linux](https://github.com/Osilvfe/linux). Project-authored Caihong
-build scripts and utilities use the SPDX licence stated in each file. Device
-firmware retains its vendor terms.
+[Unnho/linux](https://github.com/Unnho/linux), a fork of
+[Osilvfe/linux](https://github.com/Osilvfe/linux) that carries the ROCKNIX and
+Armada OS SM8650 fixes. Project-authored Caihong build scripts and utilities
+use the SPDX licence stated in each file. Device firmware retains its vendor
+terms.

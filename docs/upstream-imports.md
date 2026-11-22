@@ -2,9 +2,11 @@
 
 This branch (`caihong-distro-tuning`) folds device customizations that upstream
 ROCKNIX and Armada OS already ship for SM8650 / Snapdragon 8 Gen 3 hardware into
-the Caihong tree. Everything below is userspace or boot-command-line level, so
-it works with our direct-root, no-initramfs images on all four distributions and
-does not need a kernel rebuild.
+the Caihong tree. Most of it is userspace or boot-command-line level, so it
+works with our direct-root, no-initramfs images on all four distributions
+without a kernel rebuild. The kernel-level imports live in our Linux fork
+(`Unnho/linux`, branch `caihong-sm8650-performance`) and are listed in the
+"Kernel fork" section below.
 
 Provenance for each item is recorded in the file header it touches.
 
@@ -90,6 +92,42 @@ and `0005` (use-after-free while logging a failed disable) are applied in
 `scripts/install-caihong-ssc-stage.sh`. See `packaging/libssc/PATCHES.md` for the
 full table and for why `0004` is deferred.
 
+## Kernel fork — `Unnho/linux`, branch `caihong-sm8650-performance`
+
+`config/dependencies.env` now points the build at our Linux fork
+(`https://github.com/Unnho/linux.git`, branch `caihong-sm8650-performance`),
+which is `Osilvfe/linux` `caihong-v7.3` plus the SM8650 kernel-level fixes
+below. Each is one Ahaan-authored commit with the upstream source recorded in
+its message; the full table, including the skipped candidates and why, is in
+`/root/caihong-agent-log/6-kernel-fork.md`.
+
+| Commit | Upstream source | What it changes |
+|---|---|---|
+| `df74301bef3f` | ROCKNIX `0001-pcie-update-sm8650-dtsi` | Move the PCIe PHY reference to the port node. |
+| `a3546f574903` | Armada `8dc0be9` | Let the PCIe GDSCs collapse instead of staying retained in suspend. |
+| `b2a312c79367` | ROCKNIX `0006-...-hdmi_audio_ops` | Add the `hw_params` callback to `drm_connector_hdmi_audio_ops`. |
+| `3f692084a417` | Armada `560b556` | Route the SM8650 WSA2 AudioReach backends through the WSA interface. |
+| `9c22d0f5038b` | ROCKNIX `0066-...-inline-rotation` | Enable true inline rotation (90/270) on the SM8650 VIG/QSEED pipes. |
+| `ab02ea54b2f9` | ROCKNIX `0067-...-qseed-detail-enhancer` | Enable the QSEED3Lite detail enhancer and directional filter while scaling. |
+| `ed2d14bc1ae2` | ROCKNIX `0120-...-gpucc-power-domains` | Declare the GPU_CC power plumbing (`RPMHPD_CX`, `RPMHPD_MX`, `RPMHPD_MXC`). |
+| `0bd032676896` | ROCKNIX `20260424_..._cx_power_domain_to_gcc` | Add the missing CX power domain to GCC so GCC votes reach CX. |
+| `9a3696ecf5cc` | Armada `81ee9ff` (`0623-...-ADSP-FastRPC-remote-heap`) | Reserve the 12 MiB reusable ADSP FastRPC remote heap and reference it from the `fastrpc` node. |
+| `0e3ee0fbe605` | ROCKNIX `0071-HACK-fix-usb-boot-hang` | Drop the 5-second xHCI ready wait that hangs SM8650 boot. |
+| `d21a9b21afb1` | ROCKNIX `0504-Enable-64-bit-processes-to-use-compat-input-syscalls` | Let 64-bit processes use the compat input syscalls via `prctl`. |
+| `1db7eb9aaed8` | ROCKNIX `0505-msm_gem-lock-before-put_iova_spaces` | Take the GPU VM/object lock before `put_iova_spaces()`. |
+| `b3c4090ca7cf` | ROCKNIX `0506-usbcore-add-interrupt-interval-override` | Add the `usbcore.interrupt_interval_override` knob. |
+| `57ea70f5bea1` | ROCKNIX `0013-drm-msm-dpu-fix-inline-rotation` (common 7.3) | Fix the inline-rotation direction checks. |
+| `a027f257815f` | ROCKNIX `0010-msm-resource-cleanup` (common 7.3) | DPU resource cleanup and encoder state handling series. |
+| `276568bd1efe` | ROCKNIX `9998-silence-initramfs-unpack-warn` (common 7.3) | Demote the initramfs unpack message to `KERN_DEBUG`. |
+| `d9eeb5f39162` | — | Reverts the ROCKNIX battery rename; see below. |
+
+The ROCKNIX battery rename (`0503-ROCKNIX-battery-name`) was imported and then
+reverted in `d9eeb5f39162`: it renames the power supply to `battery`, but our
+`caihong-charge`/`caihong-autocharge` helpers and the `caihong-charge.service`
+guard all address `/sys/class/power_supply/qcom-battmgr-bat`, and the driver's
+`device/oneplus_charge_control_status` diagnostic lives under that directory
+too. The upstream `qcom-battmgr-bat` name is kept.
+
 ## Considered but not imported
 
 - **Armada `60-armada-perf-acls.rules`** — grants a group write access to
@@ -97,20 +135,14 @@ full table and for why `0004` is deferred.
   power-profiles-daemon build in `packaging/power-profiles-daemon-caihong`, and
   Arch/Debian group names differ from Armada's `wheel`, so it would fight the
   existing policy.
-- **Armada `70-armada-low-battery.conf`** — forces `CriticalPowerAction=PowerOff`.
-  Reasonable for a handheld that drains in s2idle; we keep the distribution
-  default until suspend behaviour on Caihong is confirmed on hardware.
-- **ROCKNIX kernel patches** (`projects/ROCKNIX/devices/SM8650/patches/linux/`)
-  — GPU/DPU/audio/power fixes for SM8650 belong in the kernel fork
-  (`Osilvfe/linux`, branch `caihong-v7.3`), not in this rootfs repository. The
-  notable non-upstream ones are:
-  - `0121-pmdomain-qcom-rpmhpd-presync-floor-gmu-rails` (floor the GFX/GMXC
-    rails before `sync_state`) — not present in `caihong-v7.3`;
-  - the ADSP FastRPC remote heap Armada added to `sm8650.dtsi` in commit
-    `81ee9ff` (12 MiB reusable heap, `memory-region`/`qcom,vmids` on the ADSP
-    `fastrpc` node). Our `sm8650.dtsi` fastrpc node lacks both, and the ADSP
-    sensors process is documented to fail without the heap.
-  Both are kernel-fork follow-ups, tracked in
-  `packaging/linux-caihong/` review notes and `1c-2d-history-mining.md`.
+- **ROCKNIX `0121-pmdomain-qcom-rpmhpd-presync-floor-gmu-rails`** (floor the
+  GFX/GMXC rails before `sync_state`) — the upstream patch targets a newer
+  `rpmhpd.c` that carries `skip_retention_level`/`presync_floor` fields our tree
+  does not have, and the patch itself would not compile as written (it assigns
+  `skip_retention_level` without a designator). Our tree already has the
+  `floor_corner` mechanism, so this needs a careful manual port before it can
+  be adopted; it is not in the kernel fork yet.
+- **Armada `08e4571` pm8150b charger** — adds new `qcom_fg`/`qcom_pm8150b_charger`
+  drivers for a different charger; Caihong uses the southchip SC8547.
 - **ROCKNIX handheld quirks** (joypad, fan, analog LEDs, `inputplumber`, fake
   suspend) — tied to gamepad hardware and ROCKNIX's `/storage` layout.
